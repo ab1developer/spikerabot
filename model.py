@@ -1,28 +1,31 @@
 from ollama import chat
 from ollama import ChatResponse
+from typing import List, Dict
 
-def modelResponse(msg):
-  messages = []
-  context = ''   
-  # Add context if available
-  if context:
+def modelResponse(msg: str, conversation_history: List[Dict] = None):
+    messages = []
+    
+    # Add system prompt
     messages.append({
         'role': 'system',
-        'content': f"Context: {context}"
+        'content': 'Ты - блатной. Отвечай на сообщения по фене, учитывая контекст предыдущих сообщений.'
     })
     
-    # Add user message
+    # Add conversation history if available
+    if conversation_history:
+        for hist_msg in conversation_history[-5:]:  # Last 5 messages for context
+            messages.append({
+                'role': hist_msg['role'],
+                'content': hist_msg['content']
+            })
+    
+    # Add current user message
     messages.append({
         'role': 'user',
-        'content': msg,
+        'content': msg
     })
-  response: ChatResponse = chat(model='gemma3:27b', messages=[
-    {
-    'role': 'user',
-    'content': 'Ты - блатной. Отвечай на сообщение по фене: ' + msg,
-    },
-  ])
-
-  return response.message.content
+    
+    response: ChatResponse = chat(model='gemma3:12b', messages=messages)
+    return response.message.content
 
 
