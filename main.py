@@ -1,6 +1,8 @@
 import telebot
 import model
 from context_manager import ContextManager
+from image_generator import generate_simple_image, should_generate_image
+from summary_generator import fetch_and_summarize_chat, should_generate_summary, parse_time_request
 
 # Список слов-триггеров
 TRIGGER_WORDS = ['пиздец', 'сука', 'бля', 'хуй', 'путин', 'лукашенко', 'русня', 'куает', 'карни', 'трюдо', 'тварь', 'падла']
@@ -41,14 +43,36 @@ def get_text_messages(message):
         conversation_history = context_manager.get_context(chat_id)
         print(f"Chat {chat_id}: Found {len(conversation_history)} messages in history")
         
-        # Generate response with context
-        response = model.modelResponse(message.text, conversation_history)
-        
-        # Add user message and bot response to context
-        context_manager.add_message(chat_id, 'user', message.text)
-        context_manager.add_message(chat_id, 'assistant', response)
-        
-        bot.reply_to(message, response)
+        # Check if user requests image generation
+        if should_generate_image(message.text):
+            try:
+                img_bytes = generate_simple_image(message.text)
+                bot.send_photo(chat_id, img_bytes, reply_to_message_id=message.message_id)
+                context_manager.add_message(chat_id, 'user', message.text)
+                context_manager.add_message(chat_id, 'assistant', '[Generated image]')
+            except Exception as e:
+                print(f"Image generation error: {e}")
+                bot.reply_to(message, "Не могу создать картинку, братан")
+        # Check if user requests conversation summary
+        elif should_generate_summary(message.text):
+            try:
+                from_time = parse_time_request(message.text)
+                summary = fetch_and_summarize_chat(bot, chat_id, context_manager, from_time)
+                bot.reply_to(message, summary)
+                context_manager.add_message(chat_id, 'user', message.text)
+                context_manager.add_message(chat_id, 'assistant', summary)
+            except Exception as e:
+                print(f"Summary generation error: {e}")
+                bot.reply_to(message, "Не могу создать резюме, братан")
+        else:
+            # Generate text response with context
+            response = model.modelResponse(message.text, conversation_history)
+            
+            # Add user message and bot response to context
+            context_manager.add_message(chat_id, 'user', message.text)
+            context_manager.add_message(chat_id, 'assistant', response)
+            
+            bot.reply_to(message, response)
     return
 
 # Error handling wrapper

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
 class ContextManager:
-    def __init__(self, max_messages=10, context_timeout_hours=24):
+    def __init__(self, max_messages=100, context_timeout_hours=24):
         self.conversations: Dict[int, deque] = defaultdict(lambda: deque(maxlen=max_messages))
         self.last_activity: Dict[int, datetime] = {}
         self.max_messages = max_messages
@@ -15,7 +15,7 @@ class ContextManager:
         self.conversations[chat_id].append({
             'role': role,
             'content': content,
-            'timestamp': now
+            'timestamp': now.isoformat()
         })
         self.last_activity[chat_id] = now
         self._cleanup_old_conversations()
