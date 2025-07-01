@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import re
 from typing import Optional
 import model
+from config_loader import load_config
 
 def parse_time_request(text: str) -> Optional[datetime]:
     """Parse time from user request like 'с 14:30' or 'за последние 2 часа'"""
@@ -32,8 +33,13 @@ def parse_time_request(text: str) -> Optional[datetime]:
 
 def should_generate_summary(text: str) -> bool:
     """Check if message requests conversation summary"""
-    summary_triggers = ['резюме', 'суммари', 'итог', 'кратко', 'что обсуждали', 'о чем говорили']
-    return any(trigger in text.lower() for trigger in summary_triggers)
+    config = load_config()
+    return any(trigger in text.lower() for trigger in config.memory_summary_triggers)
+
+def should_generate_file_summary(text: str) -> bool:
+    """Check if message requests file-based summary"""
+    config = load_config()
+    return any(trigger in text.lower() for trigger in config.file_summary_triggers)
 
 def fetch_and_summarize_chat(bot, chat_id: int, context_manager, from_time: Optional[datetime] = None) -> str:
     """Generate summary from stored conversation context"""

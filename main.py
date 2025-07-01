@@ -2,14 +2,18 @@ import telebot
 import model
 from context_manager import ContextManager
 from image_generator import generate_simple_image, should_generate_image
-from summary_generator import fetch_and_summarize_chat, should_generate_summary, parse_time_request
+from summary_generator import fetch_and_summarize_chat, should_generate_summary, should_generate_file_summary, parse_time_request
 from config_loader import load_config
+from message_logger import MessageLogger
+from datetime import datetime, timedelta
 
 # Load configuration from XML
-TRIGGER_WORDS, SYSTEM_CONTENT, _, _ = load_config()
+config = load_config()
+TRIGGER_WORDS = config.trigger_words
 
 bot = telebot.TeleBot('7952983086:AAH6C2lmCMfyj4_VAQezEnMNAn8xaYkpnbk')
 context_manager = ContextManager()
+message_logger = MessageLogger()
 
 def is_reply_to_bot(message):
     """Check if the message is a reply to the bot's message"""
@@ -40,6 +44,10 @@ def get_text_messages(message):
         should_respond = True
     
     if should_respond:
+        # Log the incoming message
+        author_name = message.from_user.first_name if message.from_user else "Unknown"
+        message_logger.log_message(chat_id, author_name, message.text)
+        
         # Get conversation history BEFORE adding current message
         conversation_history = context_manager.get_context(chat_id)
         print(f"Chat {chat_id}: Found {len(conversation_history)} messages in history")
@@ -54,12 +62,27 @@ def get_text_messages(message):
             except Exception as e:
                 print(f"Image generation error: {e}")
                 bot.reply_to(message, "Не могу создать картинку, братан")
+        # Check if user requests file-based summary
+        elif should_generate_file_summary(message.text):
+            try:
+                from_time = parse_time_request(message.text)
+                if not from_time:
+                    from_time = datetime.now() - timedelta(hours=24)  # Default to last 24 hours
+                summary = message_logger.summarize_from_files(chat_id, from_time)
+                bot.reply_to(message, summary)
+                message_logger.log_message(chat_id, "Bot", summary)
+                context_manager.add_message(chat_id, 'user', message.text)
+                context_manager.add_message(chat_id, 'assistant', summary)
+            except Exception as e:
+                print(f"File summary generation error: {e}")
+                bot.reply_to(message, "Не могу создать резюме из логов, братан")
         # Check if user requests conversation summary
         elif should_generate_summary(message.text):
             try:
                 from_time = parse_time_request(message.text)
                 summary = fetch_and_summarize_chat(bot, chat_id, context_manager, from_time)
                 bot.reply_to(message, summary)
+                message_logger.log_message(chat_id, "Bot", summary)
                 context_manager.add_message(chat_id, 'user', message.text)
                 context_manager.add_message(chat_id, 'assistant', summary)
             except Exception as e:
@@ -68,6 +91,9 @@ def get_text_messages(message):
         else:
             # Generate text response with context
             response = model.modelResponse(message.text, conversation_history)
+            
+            # Log bot response
+            message_logger.log_message(chat_id, "Bot", response)
             
             # Add user message and bot response to context
             context_manager.add_message(chat_id, 'user', message.text)

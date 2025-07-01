@@ -21,4 +21,23 @@
         <temperature>0.7</temperature>
         <context_history_size>10</context_history_size>
     </model_settings>
+    <logging>
+        <directory>logs</directory>
+        <max_file_size_mb>10</max_file_size_mb>
+    </logging>
+    <summary_triggers>
+        <memory>
+            <trigger>бот, резюме</trigger>
+            <trigger>бот, саммари</trigger>
+            <trigger>бот, итог</trigger>
+            <trigger>бот, кратко</trigger>
+            <trigger>бот, что обсуждали</trigger>
+            <trigger>бот, о чем говорили</trigger>
+        </memory>
+        <file>
+            <trigger>бот, резюме файлов</trigger>
+            <trigger>бот, логи</trigger>
+            <trigger>бот, история чата</trigger>
+        </file>
+    </summary_triggers>
 </config>

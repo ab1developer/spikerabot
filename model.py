@@ -7,7 +7,10 @@ def modelResponse(msg: str, conversation_history: List[Dict] = None):
     messages = []
     
     # Load config settings
-    _, system_content, temperature, context_size = load_config()
+    config = load_config()
+    system_content = config.system_content
+    temperature = config.temperature
+    context_size = config.context_size
     
     # Add system prompt
     messages.append({
