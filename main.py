@@ -3,9 +3,10 @@ import model
 from context_manager import ContextManager
 from image_generator import generate_simple_image, should_generate_image
 from summary_generator import fetch_and_summarize_chat, should_generate_summary, parse_time_request
+from config_loader import load_config
 
-# Список слов-триггеров
-TRIGGER_WORDS = ['пиздец', 'сука', 'бля', 'хуй', 'путин', 'лукашенко', 'русня', 'куает', 'карни', 'трюдо', 'тварь', 'падла']
+# Load configuration from XML
+TRIGGER_WORDS, SYSTEM_CONTENT, _, _ = load_config()
 
 bot = telebot.TeleBot('7952983086:AAH6C2lmCMfyj4_VAQezEnMNAn8xaYkpnbk')
 context_manager = ContextManager()

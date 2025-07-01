@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config>
+    <trigger_words>
+        <word>пиздец</word>
+        <word>сука</word>
+        <word>бля</word>
+        <word>хуй</word>
+        <word>путин</word>
+        <word>лукашенко</word>
+        <word>русня</word>
+        <word>куает</word>
+        <word>карни</word>
+        <word>трюдо</word>
+        <word>тварь</word>
+        <word>падла</word>
+    </trigger_words>
+    <system_prompt>
+        <content>Ты - чёткий пацан. Отвечай на сообщения по-пацански, учитывая контекст предыдущих сообщений.</content>
+    </system_prompt>
+    <model_settings>
+        <temperature>0.7</temperature>
+        <context_history_size>10</context_history_size>
+    </model_settings>
+</config>
