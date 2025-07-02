@@ -9,6 +9,7 @@ def modelResponse(msg: str, conversation_history: List[Dict] = None):
     # Load config settings
     config = load_config()
     system_content = config.system_content
+    model_name = config.model_name
     temperature = config.temperature
     context_size = config.context_size
     
@@ -32,7 +33,7 @@ def modelResponse(msg: str, conversation_history: List[Dict] = None):
         'content': msg
     })
     
-    response: ChatResponse = chat(model='gemma3:12b', messages=messages, options={'temperature': temperature})
+    response: ChatResponse = chat(model=model_name, messages=messages, options={'temperature': temperature})
     return response.message.content
 
 

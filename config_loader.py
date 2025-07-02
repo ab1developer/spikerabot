@@ -14,6 +14,9 @@ class Config:
         # Load system prompt content
         self.system_content = root.find('system_prompt/content').text
         
+        # Load model name
+        self.model_name = root.find('model_settings/model_name').text
+        
         # Load model temperature
         self.temperature = float(root.find('model_settings/temperature').text)
         
