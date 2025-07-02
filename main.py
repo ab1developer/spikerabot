@@ -50,9 +50,9 @@ def get_text_messages(message):
                 if trigger in message.text.lower():
                     should_respond = True
                     break
-            # Check for summary triggers even if main triggers not found
+            # Check for summary and image triggers even if main triggers not found
             if not should_respond:
-                if should_generate_summary(message.text) or should_generate_file_summary(message.text):
+                if should_generate_summary(message.text) or should_generate_file_summary(message.text) or should_generate_image(message.text):
                     should_respond = True
     else:
         # Handle private messages
