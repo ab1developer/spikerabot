@@ -1,6 +1,7 @@
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
+import json
 
 class ContextManager:
     def __init__(self, max_messages=100, context_timeout_hours=24):
@@ -19,6 +20,13 @@ class ContextManager:
         })
         self.last_activity[chat_id] = now
         self._cleanup_old_conversations()
+    
+    def get_compacted_context(self, chat_id: int) -> str:
+        """Get conversation context as compacted JSON string"""
+        context = self.get_context(chat_id)
+        if not context:
+            return '[]'
+        return json.dumps(context, ensure_ascii=False, separators=(',', ':'))
     
     def get_context(self, chat_id: int) -> List[Dict]:
         """Get conversation context for a chat"""

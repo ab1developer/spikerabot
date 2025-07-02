@@ -3,6 +3,7 @@ import re
 from typing import Optional
 import model
 from config_loader import load_config
+import json
 
 def parse_time_request(text: str) -> Optional[datetime]:
     """Parse time from user request like 'с 14:30' or 'за последние 2 часа'"""
@@ -42,32 +43,32 @@ def should_generate_file_summary(text: str) -> bool:
     return any(trigger in text.lower() for trigger in config.file_summary_triggers)
 
 def fetch_and_summarize_chat(bot, chat_id: int, context_manager, from_time: Optional[datetime] = None) -> str:
-    """Generate summary from stored conversation context"""
+    """Generate summary from stored conversation context with memory optimization"""
     try:
-        # Get messages from context manager
-        messages = context_manager.get_context(chat_id)
+        # Get compacted JSON context to reduce memory usage
+        compacted_context = context_manager.get_compacted_context(chat_id)
+        messages = json.loads(compacted_context)
         
         if not messages:
             return "Нет сообщений для резюме в памяти бота"
         
         # Filter by time if specified
         if from_time:
-            filtered_messages = []
-            for msg in messages:
-                if 'timestamp' in msg:
-                    msg_time = datetime.fromisoformat(msg['timestamp'])
-                    if msg_time >= from_time:
-                        filtered_messages.append(msg)
-            messages = filtered_messages
+            messages = [msg for msg in messages 
+                       if 'timestamp' in msg and 
+                       datetime.fromisoformat(msg['timestamp']) >= from_time]
         
         if not messages:
             return "Нет сообщений за указанный период"
         
-        # Prepare conversation text
-        conversation_text = ""
+        # Prepare conversation text with memory-efficient processing
+        conversation_parts = []
         for msg in messages[-20:]:  # Last 20 messages
             role = "Пользователь" if msg['role'] == 'user' else "Бот"
-            conversation_text += f"{role}: {msg['content']}\n"
+            conversation_parts.append(f"{role}: {msg['content']}")
+        
+        conversation_text = "\n".join(conversation_parts)
+        del conversation_parts  # Free memory immediately
         
         # Generate summary
         summary_prompt = f"Сделай краткое резюме этого разговора на русском языке:\n\n{conversation_text}"
