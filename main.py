@@ -34,8 +34,14 @@ def safe_send_message(chat_id, text, reply_to_message=None):
         print(f"Reply failed, sending as regular message: {e}")
         return bot.send_message(chat_id, text)
 
-@bot.message_handler(content_types=['text'])
-def get_text_messages(message):
+def process_message(message):
+    """Common message processing logic for text and photo messages"""
+    # Get text content - either from text message or photo caption
+    text_content = message.text if message.text else (message.caption or "")
+    
+    if not text_content:  # Skip if no text content
+        return
+        
     chat_id = message.chat.id
     should_respond = False
     
@@ -47,12 +53,12 @@ def get_text_messages(message):
         else:
             # Check for trigger words
             for trigger in TRIGGER_WORDS:
-                if trigger in message.text.lower():
+                if trigger.lower() in text_content.lower():
                     should_respond = True
                     break
             # Check for summary and image triggers even if main triggers not found
             if not should_respond:
-                if should_generate_summary(message.text) or should_generate_file_summary(message.text) or should_generate_image(message.text):
+                if should_generate_summary(text_content) or should_generate_file_summary(text_content) or should_generate_image(text_content):
                     should_respond = True
     else:
         # Handle private messages
@@ -61,21 +67,21 @@ def get_text_messages(message):
     if should_respond:
         # Log the incoming message
         author_name = message.from_user.first_name if message.from_user else "Unknown"
-        message_logger.log_message(chat_id, author_name, message.text)
+        message_logger.log_message(chat_id, author_name, text_content)
         
         # Get conversation history BEFORE adding current message
         conversation_history = context_manager.get_context(chat_id)
         print(f"Chat {chat_id}: Found {len(conversation_history)} messages in history")
         
         # Check if user requests image generation
-        if should_generate_image(message.text):
+        if should_generate_image(text_content):
             try:
-                img_bytes = generate_simple_image(message.text)
+                img_bytes = generate_simple_image(text_content)
                 try:
                     bot.send_photo(chat_id, img_bytes, reply_to_message_id=message.message_id)
                 except:
                     bot.send_photo(chat_id, img_bytes)
-                context_manager.add_message(chat_id, 'user', message.text)
+                context_manager.add_message(chat_id, 'user', text_content)
                 context_manager.add_message(chat_id, 'assistant', '[Generated image]')
             except Exception as e:
                 print(f"Image generation error: {e}")
@@ -84,44 +90,52 @@ def get_text_messages(message):
                 except:
                     bot.send_message(chat_id, "Не могу создать картинку, братан")
         # Check if user requests file-based summary
-        elif should_generate_file_summary(message.text):
+        elif should_generate_file_summary(text_content):
             try:
-                from_time = parse_time_request(message.text)
+                from_time = parse_time_request(text_content)
                 if not from_time:
                     from_time = datetime.now() - timedelta(hours=24)  # Default to last 24 hours
                 summary = message_logger.summarize_from_files(chat_id, from_time)
                 safe_send_message(chat_id, summary, message)
                 message_logger.log_message(chat_id, "Bot", summary)
-                context_manager.add_message(chat_id, 'user', message.text)
+                context_manager.add_message(chat_id, 'user', text_content)
                 context_manager.add_message(chat_id, 'assistant', summary)
             except Exception as e:
                 print(f"File summary generation error: {e}")
                 safe_send_message(chat_id, "Не могу создать резюме из логов, братан", message)
         # Check if user requests conversation summary
-        elif should_generate_summary(message.text):
+        elif should_generate_summary(text_content):
             try:
-                from_time = parse_time_request(message.text)
+                from_time = parse_time_request(text_content)
                 summary = fetch_and_summarize_chat(bot, chat_id, context_manager, from_time)
                 safe_send_message(chat_id, summary, message)
                 message_logger.log_message(chat_id, "Bot", summary)
-                context_manager.add_message(chat_id, 'user', message.text)
+                context_manager.add_message(chat_id, 'user', text_content)
                 context_manager.add_message(chat_id, 'assistant', summary)
             except Exception as e:
                 print(f"Summary generation error: {e}")
                 safe_send_message(chat_id, "Не могу создать резюме, братан", message)
         else:
             # Generate text response with context
-            response = model.modelResponse(message.text, conversation_history)
+            response = model.modelResponse(text_content, conversation_history)
             
             # Log bot response
             message_logger.log_message(chat_id, "Bot", response)
             
             # Add user message and bot response to context
-            context_manager.add_message(chat_id, 'user', message.text)
+            context_manager.add_message(chat_id, 'user', text_content)
             context_manager.add_message(chat_id, 'assistant', response)
             
             safe_send_message(chat_id, response, message)
-    return
+
+@bot.message_handler(content_types=['text'])
+def get_text_messages(message):
+    process_message(message)
+
+@bot.message_handler(content_types=['photo'])
+def get_photo_messages(message):
+    process_message(message)
+
 
 # Error handling wrapper
 def handle_errors(func):
@@ -138,13 +152,14 @@ def handle_errors(func):
                     print("Failed to send error message to chat")
     return wrapper
 
-# Apply error handling to message handler
+# Apply error handling to message handlers
 get_text_messages = handle_errors(get_text_messages)
+get_photo_messages = handle_errors(get_photo_messages)
 
 # Add handling for edited messages
-@bot.edited_message_handler(content_types=['text'])
+@bot.edited_message_handler(content_types=['text', 'photo'])
 def handle_edited_message(message):
-    get_text_messages(message)  # Reuse the same logic for edited messages
+    process_message(message)  # Reuse the same logic for edited messages
 
 def run_bot():
     try:

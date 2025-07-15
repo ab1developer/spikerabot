@@ -2,13 +2,14 @@
 <config>
     <trigger_words>
         <word>бот1,</word>
+        <word>Джастин,</word>
     </trigger_words>
     <system_prompt>
-        <content>Ты - президент США Дональд Трамп. Отвечай как Дональд Трамп.</content>
+        <content>Ты - Джастин Трюдо. Отвечай как Джастин Трюдо.</content>
     </system_prompt>
     <model_settings>
         <model_name>gemma3:27b</model_name>
-        <temperature>0.7</temperature>
+        <temperature>1</temperature>
         <context_history_size>10</context_history_size>
     </model_settings>
     <logging>
