@@ -116,14 +116,35 @@ def process_message(message):
                 print(f"Summary generation error: {e}")
                 safe_send_message(chat_id, "Не могу создать резюме, братан", message)
         else:
+            # Prepare full context including quoted message if present
+            full_text = text_content
+            if message.reply_to_message:
+                print(f"Reply detected: {message.reply_to_message}")
+                quoted_text = ""
+                if message.reply_to_message.text:
+                    quoted_text = message.reply_to_message.text
+                elif message.reply_to_message.caption:
+                    quoted_text = message.reply_to_message.caption
+                elif message.reply_to_message.photo:
+                    quoted_text = "[фото]"
+                elif message.reply_to_message.document:
+                    quoted_text = "[документ]"
+                else:
+                    quoted_text = "[сообщение]"
+                
+                quoted_author = message.reply_to_message.from_user.first_name if message.reply_to_message.from_user else "Unknown"
+                full_text = f"[Отвечая на сообщение от {quoted_author}: \"{quoted_text}\"] {text_content}"
+                print(f"Full context: {full_text}")
+            
             # Generate text response with context
-            response = model.modelResponse(text_content, conversation_history)
+            print(f"Sending to model: {full_text}")
+            response = model.modelResponse(full_text, conversation_history)
             
             # Log bot response
             message_logger.log_message(chat_id, "Bot", response)
             
             # Add user message and bot response to context
-            context_manager.add_message(chat_id, 'user', text_content)
+            context_manager.add_message(chat_id, 'user', full_text)
             context_manager.add_message(chat_id, 'assistant', response)
             
             safe_send_message(chat_id, response, message)
