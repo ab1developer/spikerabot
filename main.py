@@ -5,6 +5,7 @@ from image_generator import generate_simple_image, should_generate_image
 from summary_generator import fetch_and_summarize_chat, should_generate_summary, should_generate_file_summary, parse_time_request
 from config_loader import load_config
 from message_logger import MessageLogger
+from rag_embeddings import RAGEmbeddings
 from datetime import datetime, timedelta
 
 # Load configuration from XML
@@ -14,6 +15,12 @@ TRIGGER_WORDS = config.trigger_words
 bot = telebot.TeleBot('7952983086:AAH6C2lmCMfyj4_VAQezEnMNAn8xaYkpnbk')
 context_manager = ContextManager()
 message_logger = MessageLogger()
+
+# Initialize RAG embeddings at startup
+print("Initializing RAG embeddings...")
+rag_embeddings = RAGEmbeddings()
+model.set_rag_embeddings(rag_embeddings)
+print("RAG embeddings ready!")
 
 def is_reply_to_bot(message):
     """Check if the message is a reply to the bot's message"""

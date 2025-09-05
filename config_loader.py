@@ -23,6 +23,12 @@ class Config:
         # Load context history size
         self.context_size = int(root.find('model_settings/context_history_size').text)
         
+        # Load embedding model
+        self.embedding_model = root.find('model_settings/embedding_model').text
+        
+        # Load documents path
+        self.documents_path = root.find('model_settings/documents_path').text
+        
         # Load logging settings
         self.log_directory = root.find('logging/directory').text
         self.max_file_size_mb = int(root.find('logging/max_file_size_mb').text)
