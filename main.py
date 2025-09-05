@@ -31,15 +31,30 @@ def is_reply_to_bot(message):
     )
 
 def safe_send_message(chat_id, text, reply_to_message=None):
-    """Safely send message with fallback if reply fails"""
-    try:
-        if reply_to_message:
-            return bot.reply_to(reply_to_message, text)
-        else:
+    """Safely send message with fallback if reply fails and split long messages"""
+    max_length = 4096
+    
+    if len(text) <= max_length:
+        try:
+            if reply_to_message:
+                return bot.reply_to(reply_to_message, text)
+            else:
+                return bot.send_message(chat_id, text)
+        except Exception as e:
+            print(f"Reply failed, sending as regular message: {e}")
             return bot.send_message(chat_id, text)
-    except Exception as e:
-        print(f"Reply failed, sending as regular message: {e}")
-        return bot.send_message(chat_id, text)
+    else:
+        # Split message into chunks
+        for i in range(0, len(text), max_length):
+            chunk = text[i:i + max_length]
+            try:
+                if i == 0 and reply_to_message:
+                    bot.reply_to(reply_to_message, chunk)
+                else:
+                    bot.send_message(chat_id, chunk)
+            except Exception as e:
+                print(f"Failed to send message chunk: {e}")
+                bot.send_message(chat_id, chunk)
 
 def process_message(message):
     """Common message processing logic for text and photo messages"""
