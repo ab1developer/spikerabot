@@ -11,7 +11,7 @@ def set_rag_embeddings(rag_instance):
     global rag_embeddings
     rag_embeddings = rag_instance
 
-def modelResponse(msg: str, conversation_history: List[Dict] = None):
+def modelResponse(msg: str, conversation_history: List[Dict] = None, document_context: str = None):
     messages = []
     
     # Load config settings
@@ -24,8 +24,13 @@ def modelResponse(msg: str, conversation_history: List[Dict] = None):
     # Get relevant context from RAG
     relevant_context = rag_embeddings.get_relevant_context(msg)
     
+    # Add document context if provided
+    context_parts = [f"Контекст из документов:\n{relevant_context}"]
+    if document_context:
+        context_parts.append(f"Контекст из прикрепленного документа:\n{document_context}")
+    
     # Add system prompt with RAG context
-    enhanced_system_content = f"{system_content}\n\nКонтекст из документов:\n{relevant_context}"
+    enhanced_system_content = f"{system_content}\n\n{chr(10).join(context_parts)}"
     messages.append({
         'role': 'system',
         'content': enhanced_system_content

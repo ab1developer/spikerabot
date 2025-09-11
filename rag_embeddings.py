@@ -1,7 +1,12 @@
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings, StorageContext, load_index_from_storage
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings, StorageContext, load_index_from_storage, Document
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from config_loader import load_config
 import os
+import tempfile
+import requests
+import ebooklib
+from ebooklib import epub
+from bs4 import BeautifulSoup
 
 class RAGEmbeddings:
     def __init__(self):
@@ -30,3 +35,43 @@ class RAGEmbeddings:
         nodes = retriever.retrieve(query)
         context = "\n\n".join([node.text for node in nodes])
         return context
+    
+    def _extract_epub_text(self, file_path: str) -> str:
+        """Extract text from EPUB file"""
+        try:
+            book = epub.read_epub(file_path)
+            text_content = []
+            
+            for item in book.get_items():
+                if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                    soup = BeautifulSoup(item.get_content(), 'html.parser')
+                    text_content.append(soup.get_text())
+            
+            return '\n'.join(text_content)
+        except Exception as e:
+            print(f"EPUB extraction error: {e}")
+            return ""
+    
+    def analyze_document(self, file_path: str, query: str) -> str:
+        """Analyze a single document and return relevant context"""
+        try:
+            # Handle different file types
+            if file_path.lower().endswith('.epub'):
+                content = self._extract_epub_text(file_path)
+            else:
+                # Read as text file
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+            
+            if not content.strip():
+                return "Документ пуст или не удалось извлечь текст"
+            
+            # Create document manually
+            documents = [Document(text=content)]
+            temp_index = VectorStoreIndex.from_documents(documents)
+            retriever = temp_index.as_retriever(similarity_top_k=3)
+            nodes = retriever.retrieve(query)
+            return "\n\n".join([node.text for node in nodes])
+        except Exception as e:
+            print(f"Document analysis error: {e}")
+            return f"Ошибка анализа документа: {str(e)}"

@@ -7,6 +7,8 @@ from config_loader import load_config
 from message_logger import MessageLogger
 from rag_embeddings import RAGEmbeddings
 from datetime import datetime, timedelta
+import tempfile
+import os
 
 # Load configuration from XML
 config = load_config()
@@ -55,6 +57,61 @@ def safe_send_message(chat_id, text, reply_to_message=None):
             except Exception as e:
                 print(f"Failed to send message chunk: {e}")
                 bot.send_message(chat_id, chunk)
+
+def process_document_message(message):
+    """Process messages with attached documents"""
+    chat_id = message.chat.id
+    text_content = message.caption or "Анализ документа"
+    
+    # Check if should respond
+    should_respond = False
+    if message.chat.type in ['group', 'supergroup']:
+        if is_reply_to_bot(message):
+            should_respond = True
+        else:
+            for trigger in TRIGGER_WORDS:
+                if trigger.lower() in text_content.lower():
+                    should_respond = True
+                    break
+    else:
+        should_respond = True
+    
+    if should_respond:
+        try:
+            # Download document
+            file_info = bot.get_file(message.document.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            
+            # Save to temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{message.document.file_name}") as temp_file:
+                temp_file.write(downloaded_file)
+                temp_path = temp_file.name
+            
+            # Analyze document
+            document_context = rag_embeddings.analyze_document(temp_path, text_content)
+            
+            # Get conversation history
+            conversation_history = context_manager.get_context(chat_id)
+            
+            # Generate response with document context
+            response = model.modelResponse(text_content, conversation_history, document_context)
+            
+            # Log and save context
+            author_name = message.from_user.first_name if message.from_user else "Unknown"
+            message_logger.log_message(chat_id, author_name, f"[Документ: {message.document.file_name}] {text_content}")
+            message_logger.log_message(chat_id, "Bot", response)
+            
+            context_manager.add_message(chat_id, 'user', f"[Документ: {message.document.file_name}] {text_content}")
+            context_manager.add_message(chat_id, 'assistant', response)
+            
+            safe_send_message(chat_id, response, message)
+            
+            # Cleanup temp file
+            os.unlink(temp_path)
+            
+        except Exception as e:
+            print(f"Document processing error: {e}")
+            safe_send_message(chat_id, "Не могу обработать документ, братан", message)
 
 def process_message(message):
     """Common message processing logic for text and photo messages"""
@@ -179,6 +236,10 @@ def get_text_messages(message):
 def get_photo_messages(message):
     process_message(message)
 
+@bot.message_handler(content_types=['document'])
+def get_document_messages(message):
+    process_document_message(message)
+
 
 # Error handling wrapper
 def handle_errors(func):
@@ -198,6 +259,7 @@ def handle_errors(func):
 # Apply error handling to message handlers
 get_text_messages = handle_errors(get_text_messages)
 get_photo_messages = handle_errors(get_photo_messages)
+get_document_messages = handle_errors(get_document_messages)
 
 # Add handling for edited messages
 @bot.edited_message_handler(content_types=['text', 'photo'])
