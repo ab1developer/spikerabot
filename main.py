@@ -4,6 +4,7 @@ from context_manager import ContextManager
 from image_generator import generate_simple_image, should_generate_image
 from summary_generator import fetch_and_summarize_chat, should_generate_summary, should_generate_file_summary, parse_time_request
 from config_loader import load_config
+from security_loader import load_security_config
 from message_logger import MessageLogger
 from rag_embeddings import RAGEmbeddings
 from datetime import datetime, timedelta
@@ -12,9 +13,10 @@ import os
 
 # Load configuration from XML
 config = load_config()
+security_config = load_security_config()
 TRIGGER_WORDS = config.trigger_words
 
-bot = telebot.TeleBot('7952983086:AAH6C2lmCMfyj4_VAQezEnMNAn8xaYkpnbk')
+bot = telebot.TeleBot(security_config.bot_token)
 context_manager = ContextManager()
 message_logger = MessageLogger()
 
@@ -87,8 +89,17 @@ def process_document_message(message):
                 temp_file.write(downloaded_file)
                 temp_path = temp_file.name
             
-            # Analyze document
+            # Analyze document and build knowledge graph
             document_context = rag_embeddings.analyze_document(temp_path, text_content)
+            
+            # Build knowledge graph for this specific document
+            if hasattr(rag_embeddings, 'kg_builder'):
+                with open(temp_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                kg_result = rag_embeddings.kg_builder.build_kg_from_message_document(
+                    content, message.document.file_name, text_content
+                )
+                print(f"Knowledge graph built: {kg_result}")
             
             # Get conversation history
             conversation_history = context_manager.get_context(chat_id)

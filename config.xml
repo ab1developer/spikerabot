@@ -13,6 +13,7 @@
         <context_history_size>10</context_history_size>
         <embedding_model>sentence-transformers/all-mpnet-base-v2</embedding_model>
         <documents_path>stalin/</documents_path>
+        <request_timeout>600</request_timeout>
     </model_settings>
     <logging>
         <directory>logs</directory>

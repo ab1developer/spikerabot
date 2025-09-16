@@ -29,6 +29,9 @@ class Config:
         # Load documents path
         self.documents_path = root.find('model_settings/documents_path').text
         
+        # Load request timeout
+        self.request_timeout = float(root.find('model_settings/request_timeout').text)
+        
         # Load logging settings
         self.log_directory = root.find('logging/directory').text
         self.max_file_size_mb = int(root.find('logging/max_file_size_mb').text)
