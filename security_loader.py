@@ -6,7 +6,11 @@ class SecurityConfig:
         root = tree.getroot()
         
         # Load Telegram bot token
-        self.bot_token = root.find('telegram/bot_token').text
+        token_element = root.find('telegram/bot_token')
+        if token_element is not None and token_element.text:
+            self.bot_token = token_element.text.strip()
+        else:
+            raise ValueError("Bot token not found in security.xml")
 
 def load_security_config():
     """Load security configuration from XML file"""
