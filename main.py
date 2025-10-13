@@ -7,6 +7,7 @@ from config_loader import load_config
 from security_loader import load_security_config
 from message_logger import MessageLogger
 from rag_embeddings import RAGEmbeddings
+from debug_logger import debug_logger
 from datetime import datetime, timedelta
 import tempfile
 import os
@@ -121,7 +122,9 @@ def process_document_message(message):
             os.unlink(temp_path)
             
         except Exception as e:
-            print(f"Document processing error: {e}")
+            error_msg = f"Document processing error: {e}"
+            print(error_msg)
+            debug_logger.log_error(error_msg, e)
             safe_send_message(chat_id, "Не могу обработать документ, братан", message)
 
 def process_message(message):
@@ -174,7 +177,9 @@ def process_message(message):
                 context_manager.add_message(chat_id, 'user', text_content)
                 context_manager.add_message(chat_id, 'assistant', '[Generated image]')
             except Exception as e:
-                print(f"Image generation error: {e}")
+                error_msg = f"Image generation error: {e}"
+                print(error_msg)
+                debug_logger.log_error(error_msg, e)
                 try:
                     bot.reply_to(message, "Не могу создать картинку, братан")
                 except:
@@ -191,7 +196,9 @@ def process_message(message):
                 context_manager.add_message(chat_id, 'user', text_content)
                 context_manager.add_message(chat_id, 'assistant', summary)
             except Exception as e:
-                print(f"File summary generation error: {e}")
+                error_msg = f"File summary generation error: {e}"
+                print(error_msg)
+                debug_logger.log_error(error_msg, e)
                 safe_send_message(chat_id, "Не могу создать резюме из логов, братан", message)
         # Check if user requests conversation summary
         elif should_generate_summary(text_content):
@@ -203,7 +210,9 @@ def process_message(message):
                 context_manager.add_message(chat_id, 'user', text_content)
                 context_manager.add_message(chat_id, 'assistant', summary)
             except Exception as e:
-                print(f"Summary generation error: {e}")
+                error_msg = f"Summary generation error: {e}"
+                print(error_msg)
+                debug_logger.log_error(error_msg, e)
                 safe_send_message(chat_id, "Не могу создать резюме, братан", message)
         else:
             # Prepare full context including quoted message if present

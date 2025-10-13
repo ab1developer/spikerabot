@@ -3,16 +3,31 @@ from llama_index.core.graph_stores import SimpleGraphStore
 from llama_index.core import Document
 from llama_index.llms.ollama import Ollama
 from config_loader import load_config
+from debug_logger import debug_logger
 import os
 import json
 
+# Disable NLTK downloads to prevent errors
+try:
+    import nltk
+    nltk.data.path = []
+    debug_logger.log_info("NLTK data path cleared to prevent downloads")
+except ImportError:
+    debug_logger.log_info("NLTK not found, skipping configuration")
+    pass
+
 class KnowledgeGraphBuilder:
     def __init__(self):
-        # Configure local Ollama model for knowledge graph
-        config = load_config()
-        Settings.llm = Ollama(model=config.model_name, request_timeout=config.request_timeout)
-        self.kg_index = None
-        self._load_or_create_kg()
+        try:
+            # Configure local Ollama model for knowledge graph
+            config = load_config()
+            Settings.llm = Ollama(model=config.model_name, request_timeout=config.request_timeout)
+            self.kg_index = None
+            self._load_or_create_kg()
+        except Exception as e:
+            debug_logger.log_error(f"Knowledge graph initialization failed: {e}", e)
+            self.kg_index = None
+            print("Knowledge graph disabled due to initialization error")
     
     def _load_or_create_kg(self):
         """Load existing knowledge graph or create new one"""
@@ -23,31 +38,47 @@ class KnowledgeGraphBuilder:
                 self.kg_index = load_index_from_storage(storage_context, index_id="knowledge_graph")
             else:
                 raise FileNotFoundError("No existing knowledge graph found")
-        except:
+        except Exception as e:
+            debug_logger.log_error(f"Failed to load knowledge graph: {e}", e)
             print("Creating new knowledge graph...")
-            graph_store = SimpleGraphStore()
-            storage_context = StorageContext.from_defaults(graph_store=graph_store)
-            self.kg_index = KnowledgeGraphIndex([], storage_context=storage_context)
-            self.kg_index.set_index_id("knowledge_graph")
+            try:
+                graph_store = SimpleGraphStore()
+                storage_context = StorageContext.from_defaults(graph_store=graph_store)
+                self.kg_index = KnowledgeGraphIndex([], storage_context=storage_context)
+                self.kg_index.set_index_id("knowledge_graph")
+                # Persist immediately after creation
+                self.kg_index.storage_context.persist(persist_dir="./storage")
+                debug_logger.log_info("New knowledge graph created and persisted successfully")
+            except Exception as create_error:
+                debug_logger.log_error(f"Failed to create knowledge graph: {create_error}", create_error)
+                raise
     
     def add_document_to_kg(self, content: str, doc_name: str = "document"):
         """Add document content to knowledge graph"""
+        if self.kg_index is None:
+            return "Knowledge graph not available"
         try:
             document = Document(text=content, metadata={"source": doc_name})
             self.kg_index.insert(document)
             self.kg_index.storage_context.persist(persist_dir="./storage")
             return f"Added {doc_name} to knowledge graph"
         except Exception as e:
-            return f"Error adding to knowledge graph: {str(e)}"
+            debug_logger.log_error(f"Knowledge graph add error: {e}", e)
+            print(f"Knowledge graph add error: {e}")
+            return f"Document processed (knowledge graph unavailable)"
     
     def query_kg(self, query: str) -> str:
         """Query the knowledge graph"""
+        if self.kg_index is None:
+            return "Knowledge graph not available"
         try:
             query_engine = self.kg_index.as_query_engine()
             response = query_engine.query(query)
             return str(response)
         except Exception as e:
-            return f"Knowledge graph query error: {str(e)}"
+            debug_logger.log_error(f"Knowledge graph query error: {e}", e)
+            print(f"Knowledge graph query error: {e}")
+            return "Knowledge graph temporarily unavailable"
     
     def get_graph_summary(self) -> str:
         """Get summary of knowledge graph contents"""

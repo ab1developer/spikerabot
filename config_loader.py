@@ -32,6 +32,9 @@ class Config:
         # Load request timeout
         self.request_timeout = float(root.find('model_settings/request_timeout').text)
         
+        # Load debug log file
+        self.debug_log_file = root.find('logging/debug_log_file').text
+        
         # Load logging settings
         self.log_directory = root.find('logging/directory').text
         self.max_file_size_mb = int(root.find('logging/max_file_size_mb').text)

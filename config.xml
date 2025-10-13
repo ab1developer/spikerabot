@@ -18,6 +18,7 @@
     <logging>
         <directory>logs</directory>
         <max_file_size_mb>10</max_file_size_mb>
+        <debug_log_file>debug.log</debug_log_file>
     </logging>
     <summary_triggers>
         <memory>
