@@ -15,6 +15,15 @@
         <documents_path>stalin/</documents_path>
         <request_timeout>600</request_timeout>
     </model_settings>
+    <web_search>
+        <enabled>true</enabled>
+        <max_results>3</max_results>
+        <triggers>
+            <trigger>поиск в интернете</trigger>
+            <trigger>найди в сети</trigger>
+            <trigger>что в интернете</trigger>
+        </triggers>
+    </web_search>
     <logging>
         <directory>logs</directory>
         <max_file_size_mb>10</max_file_size_mb>

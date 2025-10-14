@@ -47,6 +47,14 @@ class Config:
         self.file_summary_triggers = []
         for trigger in root.find('summary_triggers/file').findall('trigger'):
             self.file_summary_triggers.append(trigger.text)
+        
+        # Load web search settings
+        web_search = root.find('web_search')
+        self.web_search_enabled = web_search.find('enabled').text.lower() == 'true'
+        self.web_search_max_results = int(web_search.find('max_results').text)
+        self.web_search_triggers = []
+        for trigger in web_search.find('triggers').findall('trigger'):
+            self.web_search_triggers.append(trigger.text)
 
 def load_config():
     """Load configuration from XML file"""

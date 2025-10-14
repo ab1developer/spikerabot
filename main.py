@@ -8,6 +8,7 @@ from security_loader import load_security_config
 from message_logger import MessageLogger
 from rag_embeddings import RAGEmbeddings
 from debug_logger import debug_logger
+from web_search import web_searcher
 from datetime import datetime, timedelta
 import tempfile
 import os
@@ -149,9 +150,10 @@ def process_message(message):
                 if trigger.lower() in text_content.lower():
                     should_respond = True
                     break
-            # Check for summary and image triggers even if main triggers not found
+            # Check for summary, image, and web search triggers even if main triggers not found
             if not should_respond:
-                if should_generate_summary(text_content) or should_generate_file_summary(text_content) or should_generate_image(text_content):
+                if (should_generate_summary(text_content) or should_generate_file_summary(text_content) or 
+                    should_generate_image(text_content) or web_searcher.should_search_web(text_content)):
                     should_respond = True
     else:
         # Handle private messages
@@ -166,8 +168,21 @@ def process_message(message):
         conversation_history = context_manager.get_context(chat_id)
         print(f"Chat {chat_id}: Found {len(conversation_history)} messages in history")
         
+        # Check if user requests web search
+        if web_searcher.should_search_web(text_content):
+            try:
+                search_response = web_searcher.search_and_analyze(text_content, conversation_history)
+                safe_send_message(chat_id, search_response, message)
+                message_logger.log_message(chat_id, "Bot", search_response)
+                context_manager.add_message(chat_id, 'user', text_content)
+                context_manager.add_message(chat_id, 'assistant', search_response)
+            except Exception as e:
+                error_msg = f"Web search error: {e}"
+                print(error_msg)
+                debug_logger.log_error(error_msg, e)
+                safe_send_message(chat_id, "Не могу выполнить поиск в интернете, братан", message)
         # Check if user requests image generation
-        if should_generate_image(text_content):
+        elif should_generate_image(text_content):
             try:
                 img_bytes = generate_simple_image(text_content)
                 try:
