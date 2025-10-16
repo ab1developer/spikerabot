@@ -18,6 +18,8 @@
     <web_search>
         <enabled>true</enabled>
         <max_results>3</max_results>
+        <smart_search_enabled>true</smart_search_enabled>
+        <smart_search_links>5</smart_search_links>
         <triggers>
             <trigger>поиск в интернете</trigger>
             <trigger>найди в сети</trigger>

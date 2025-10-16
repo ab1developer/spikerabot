@@ -52,6 +52,8 @@ class Config:
         web_search = root.find('web_search')
         self.web_search_enabled = web_search.find('enabled').text.lower() == 'true'
         self.web_search_max_results = int(web_search.find('max_results').text)
+        self.smart_search_enabled = web_search.find('smart_search_enabled').text.lower() == 'true' if web_search.find('smart_search_enabled') is not None else False
+        self.smart_search_links = int(web_search.find('smart_search_links').text) if web_search.find('smart_search_links') is not None else 5
         self.web_search_triggers = []
         for trigger in web_search.find('triggers').findall('trigger'):
             self.web_search_triggers.append(trigger.text)

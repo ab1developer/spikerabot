@@ -250,9 +250,23 @@ def process_message(message):
                 full_text = f"[Отвечая на сообщение от {quoted_author}: \"{quoted_text}\"] {text_content}"
                 print(f"Full context: {full_text}")
             
+            # Check if smart auto-search is needed
+            web_context = ""
+            if web_searcher.smart_search_enabled:
+                needs_search, search_query = web_searcher.should_auto_search(full_text)
+                if needs_search and search_query:
+                    try:
+                        print(f"Smart auto-search triggered: {search_query}")
+                        web_context = web_searcher.smart_search_and_compact(search_query)
+                        if web_context:
+                            web_context = "\n\n" + web_context
+                    except Exception as e:
+                        print(f"Smart search error: {e}")
+                        debug_logger.log_error(f"Smart search error: {e}", e)
+            
             # Generate text response with context
             print(f"Sending to model: {full_text}")
-            response = model.modelResponse(full_text, conversation_history)
+            response = model.modelResponse(full_text + web_context, conversation_history)
             
             # Log bot response
             message_logger.log_message(chat_id, "Bot", response)
