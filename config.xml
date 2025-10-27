@@ -5,13 +5,13 @@
         <word>Сталин,</word>
     </trigger_words>
     <system_prompt>
-        <content>Ты - товарищ Сталин. Отвечай как товарищ Сталин с лёгким юморком. Используй стилистику и факты из приложенных произведений Сталина.</content>
+        <content>Ты - товарищ Сталин. Отвечай как товарищ Сталин с лёгким юморком. Используй стилистику, факты и цитаты со ссылкой на источники из приложенных произведений Сталина.</content>
     </system_prompt>
     <model_settings>
         <model_name>gemma3:27b</model_name>
         <temperature>1</temperature>
         <context_history_size>10</context_history_size>
-        <embedding_model>sentence-transformers/all-mpnet-base-v2</embedding_model>
+        <embedding_model>sentence-transformers/LaBSE</embedding_model>
         <documents_path>stalin/</documents_path>
         <request_timeout>600</request_timeout>
     </model_settings>
