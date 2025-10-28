@@ -13,6 +13,7 @@ class WebSearcher:
         self.config = load_config()
         self.smart_search_enabled = self.config.smart_search_enabled
         self.headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        self.search_sources = self.config.search_sources
     
     def should_search_web(self, text: str) -> bool:
         """Check if message requests web search"""
@@ -90,19 +91,14 @@ class WebSearcher:
         except:
             return ""
     
-    @lru_cache(maxsize=50)
-    def cached_search(self, query: str, timestamp: int) -> tuple:
-        """Cached search with 5-minute intervals"""
-        return self._perform_search(query)
-    
-    def _perform_search(self, query: str) -> tuple:
-        """Perform web search and return results with links"""
+    def _search_duckduckgo(self, query: str) -> list:
+        """Search using DuckDuckGo"""
         try:
             search_url = f"https://duckduckgo.com/html/?q={quote_plus(query)}"
             response = requests.get(search_url, headers=self.headers, timeout=10)
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            raw_results = []
+            results = []
             result_elements = soup.find_all('a', class_='result__a')[:self.config.web_search_max_results * 2]
             
             for elem in result_elements:
@@ -110,7 +106,111 @@ class WebSearcher:
                 url = elem.get('href', '')
                 snippet = self.extract_snippet(elem)
                 if title and url:
-                    raw_results.append({'title': title, 'url': url, 'snippet': snippet})
+                    results.append({'title': title, 'url': url, 'snippet': snippet, 'source': 'DuckDuckGo'})
+            
+            return results
+        except Exception as e:
+            debug_logger.log_error(f"DuckDuckGo search error: {e}", e)
+            return []
+    
+    def _search_brave(self, query: str) -> list:
+        """Search using Brave Search (HTML scraping)"""
+        try:
+            search_url = f"https://search.brave.com/search?q={quote_plus(query)}"
+            response = requests.get(search_url, headers=self.headers, timeout=10)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            results = []
+            # Brave uses different HTML structure
+            result_divs = soup.find_all('div', class_='snippet')[:self.config.web_search_max_results * 2]
+            
+            for div in result_divs:
+                title_elem = div.find('a', class_='result-header')
+                if not title_elem:
+                    title_elem = div.find_previous('a')
+                
+                if title_elem:
+                    title = title_elem.get_text().strip()
+                    url = title_elem.get('href', '')
+                    snippet_elem = div.find('p', class_='snippet-description')
+                    snippet = snippet_elem.get_text().strip() if snippet_elem else ''
+                    
+                    if title and url:
+                        results.append({'title': title, 'url': url, 'snippet': snippet, 'source': 'Brave'})
+            
+            return results
+        except Exception as e:
+            debug_logger.log_error(f"Brave search error: {e}", e)
+            return []
+    
+    def _search_google(self, query: str) -> list:
+        """Search using Google (HTML scraping)"""
+        try:
+            search_url = f"https://www.google.com/search?q={quote_plus(query)}"
+            response = requests.get(search_url, headers=self.headers, timeout=10)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            results = []
+            # Google search results
+            result_divs = soup.find_all('div', class_='g')[:self.config.web_search_max_results * 2]
+            
+            for div in result_divs:
+                title_elem = div.find('h3')
+                link_elem = div.find('a')
+                snippet_elem = div.find('div', class_='VwiC3b')
+                
+                if title_elem and link_elem:
+                    title = title_elem.get_text().strip()
+                    url = link_elem.get('href', '')
+                    snippet = snippet_elem.get_text().strip() if snippet_elem else ''
+                    
+                    if title and url and url.startswith('http'):
+                        results.append({'title': title, 'url': url, 'snippet': snippet, 'source': 'Google'})
+            
+            return results
+        except Exception as e:
+            debug_logger.log_error(f"Google search error: {e}", e)
+            return []
+    
+    def _multi_source_search(self, query: str) -> list:
+        """Search across multiple sources with fallback"""
+        all_results = []
+        
+        for source_config in self.search_sources:
+            source_name = source_config['name'].lower()
+            
+            debug_logger.log_info(f"Trying search source: {source_name}")
+            
+            if source_name == 'duckduckgo':
+                results = self._search_duckduckgo(query)
+            elif source_name == 'brave':
+                results = self._search_brave(query)
+            elif source_name == 'google':
+                results = self._search_google(query)
+            else:
+                debug_logger.log_info(f"Unknown search source: {source_name}")
+                continue
+            
+            if results:
+                all_results.extend(results)
+                debug_logger.log_info(f"{source_name} returned {len(results)} results")
+                # If we have enough results, stop trying other sources
+                if len(all_results) >= self.config.web_search_max_results * 2:
+                    break
+            else:
+                debug_logger.log_info(f"{source_name} returned no results, trying next source")
+        
+        return all_results
+    
+    @lru_cache(maxsize=50)
+    def cached_search(self, query: str, timestamp: int) -> tuple:
+        """Cached search with 5-minute intervals"""
+        return self._perform_search(query)
+    
+    def _perform_search(self, query: str) -> tuple:
+        """Perform multi-source web search and return results with links"""
+        try:
+            raw_results = self._multi_source_search(query)
             
             if not raw_results:
                 return "🔍 Поиск не дал результатов", []
@@ -123,11 +223,11 @@ class WebSearcher:
                 text = f"• {r['title']}"
                 if r['snippet']:
                     text += f"\n  {r['snippet'][:150]}..."
-                text += f" [Рел: {r['score']:.0f}%]"
+                text += f" [{r.get('source', 'Web')}] [Рел: {r['score']:.0f}%]"
                 results.append(text)
                 links.append(r['url'])
             
-            search_text = f"🔍 Результаты (отсортировано):\n\n" + "\n\n".join(results)
+            search_text = f"🔍 Результаты (мульти-источник):\n\n" + "\n\n".join(results)
             return search_text, links
                 
         except Exception as e:
@@ -221,19 +321,7 @@ Does NOT need search for:
     def smart_search_and_compact(self, query: str) -> str:
         """Perform smart search with ranking, content extraction and compact results"""
         try:
-            search_url = f"https://duckduckgo.com/html/?q={quote_plus(query)}"
-            response = requests.get(search_url, headers=self.headers, timeout=10)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            raw_results = []
-            result_elements = soup.find_all('a', class_='result__a')[:self.config.smart_search_links * 2]
-            
-            for elem in result_elements:
-                title = elem.get_text().strip()
-                url = elem.get('href', '')
-                snippet = self.extract_snippet(elem)
-                if title and url:
-                    raw_results.append({'title': title, 'url': url, 'snippet': snippet})
+            raw_results = self._multi_source_search(query)
             
             if not raw_results:
                 return ""

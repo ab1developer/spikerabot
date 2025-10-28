@@ -6,6 +6,7 @@ from config_loader import load_config
 from debug_logger import debug_logger
 import os
 import json
+import spacy
 
 # Disable NLTK downloads to prevent errors
 try:
@@ -23,11 +24,28 @@ class KnowledgeGraphBuilder:
             config = load_config()
             Settings.llm = Ollama(model=config.model_name, request_timeout=config.request_timeout)
             self.kg_index = None
+            self.nlp = self._load_spacy_model()
             self._load_or_create_kg()
         except Exception as e:
             debug_logger.log_error(f"Knowledge graph initialization failed: {e}", e)
             self.kg_index = None
             print("Knowledge graph disabled due to initialization error")
+    
+    def _load_spacy_model(self):
+        """Load Russian spaCy model with fallback"""
+        try:
+            nlp = spacy.load("ru_core_news_sm")
+            debug_logger.log_info("Loaded Russian spaCy model")
+            return nlp
+        except OSError:
+            debug_logger.log_info("Downloading Russian spaCy model...")
+            os.system("python -m spacy download ru_core_news_sm")
+            try:
+                return spacy.load("ru_core_news_sm")
+            except Exception as e:
+                debug_logger.log_error(f"Failed to load spaCy model after download: {e}", e)
+                print("Warning: spaCy model unavailable, knowledge graph will use fallback mode")
+                return None
     
     def _load_or_create_kg(self):
         """Load existing knowledge graph or create new one"""
@@ -53,15 +71,70 @@ class KnowledgeGraphBuilder:
                 debug_logger.log_error(f"Failed to create knowledge graph: {create_error}", create_error)
                 raise
     
+    def _extract_entities(self, text: str):
+        """Extract named entities using spaCy"""
+        if self.nlp is None:
+            return []
+        doc = self.nlp(text[:10000])
+        entities = [(ent.text.strip(), ent.label_) for ent in doc.ents if len(ent.text.strip()) > 1]
+        return entities
+    
+    def _extract_relations_with_llm(self, entities: list, text_context: str):
+        """Use LLM to infer semantic relationships between entities"""
+        if len(entities) < 2:
+            return []
+        
+        entity_list = ", ".join([f"{e[0]} ({e[1]})" for e in entities[:15]])
+        prompt = f"""Из текста извлеките связи между сущностями в формате: субъект|отношение|объект
+
+Сущности: {entity_list}
+
+Текст: {text_context[:1500]}
+
+Верните только связи, по одной на строку. Пример:
+Сталин|родился_в|Гори
+Гори|находится_в|Грузия"""
+        
+        try:
+            response = Settings.llm.complete(prompt)
+            triplets = []
+            for line in str(response).strip().split('\n'):
+                if '|' in line:
+                    parts = [p.strip() for p in line.split('|')]
+                    if len(parts) == 3 and all(parts):
+                        triplets.append(tuple(parts))
+            return triplets[:20]
+        except Exception as e:
+            debug_logger.log_error(f"LLM relation extraction error: {e}", e)
+            return []
+    
     def add_document_to_kg(self, content: str, doc_name: str = "document"):
-        """Add document content to knowledge graph"""
+        """Add document content to knowledge graph with semantic extraction"""
         if self.kg_index is None:
             return "Knowledge graph not available"
         try:
+            # Extract entities with spaCy
+            entities = self._extract_entities(content)
+            debug_logger.log_info(f"Extracted {len(entities)} entities from {doc_name}")
+            
+            # Extract relationships with LLM
+            triplets = self._extract_relations_with_llm(entities, content)
+            debug_logger.log_info(f"Extracted {len(triplets)} relationships from {doc_name}")
+            
+            # Add triplets to graph store
+            for subj, rel, obj in triplets:
+                try:
+                    self.kg_index.graph_store.upsert_triplet(subj, rel, obj)
+                except AttributeError:
+                    # Fallback for older LlamaIndex versions
+                    self.kg_index.graph_store.add_triplet(subj, rel, obj)
+            
+            # Also add document for fallback querying
             document = Document(text=content, metadata={"source": doc_name})
             self.kg_index.insert(document)
+            
             self.kg_index.storage_context.persist(persist_dir="./storage")
-            return f"Added {doc_name} to knowledge graph"
+            return f"Added {doc_name} to knowledge graph ({len(triplets)} relationships)"
         except Exception as e:
             debug_logger.log_error(f"Knowledge graph add error: {e}", e)
             print(f"Knowledge graph add error: {e}")

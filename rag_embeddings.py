@@ -19,18 +19,18 @@ class RAGEmbeddings:
     
     def _load_or_build_index(self):
         if os.path.exists("./storage"):
-            print("Загружаем сохраненный индекс...")
+            print("Loading saved index...")
             storage_context = StorageContext.from_defaults(persist_dir="./storage")
             self.index = load_index_from_storage(storage_context)
-            print("Индекс загружен!")
+            print("Index loaded!")
         else:
             config = load_config()
             documents = SimpleDirectoryReader(config.documents_path).load_data()
-            print(f"Загружено документов: {len(documents)}")
-            print("Строим векторный индекс...")
+            print(f"Documents loaded: {len(documents)}")
+            print("Building vector index...")
             self.index = VectorStoreIndex.from_documents(documents, show_progress=True)
             self.index.storage_context.persist(persist_dir="./storage")
-            print("Индекс построен и сохранен!")
+            print("Index built and saved!")
     
     def get_relevant_context(self, query: str, top_k: int = 3) -> str:
         retriever = self.index.as_retriever(similarity_top_k=top_k)

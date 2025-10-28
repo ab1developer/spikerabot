@@ -20,6 +20,12 @@
         <max_results>3</max_results>
         <smart_search_enabled>true</smart_search_enabled>
         <smart_search_links>5</smart_search_links>
+        <!-- Search sources: priority determines order, lower = tried first. Fallback to next if no results -->
+        <sources>
+            <source enabled="true" priority="1">duckduckgo</source>
+            <source enabled="true" priority="2">brave</source>
+            <source enabled="true" priority="3">google</source>
+        </sources>
         <triggers>
             <trigger>поиск в интернете</trigger>
             <trigger>найди в сети</trigger>
