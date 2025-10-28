@@ -15,6 +15,7 @@ class RAGEmbeddings:
         Settings.embed_model = HuggingFaceEmbedding(model_name=config.embedding_model)
         self.index = None
         self.kg_builder = KnowledgeGraphBuilder()
+        self.hybrid_retrieval = config.hybrid_retrieval
         self._load_or_build_index()
     
     def _load_or_build_index(self):
@@ -32,15 +33,66 @@ class RAGEmbeddings:
             self.index.storage_context.persist(persist_dir="./storage")
             print("Index built and saved!")
     
+    def _reciprocal_rank_fusion(self, vector_results: list, kg_results: list, k: int = 60) -> list:
+        """Merge results using reciprocal rank fusion"""
+        scores = {}
+        
+        # Score vector results
+        for rank, node in enumerate(vector_results, 1):
+            doc_id = node.node_id
+            scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank)
+        
+        # Score KG results (extract text from KG response)
+        for rank, kg_text in enumerate(kg_results, 1):
+            # Use text hash as ID for KG results
+            doc_id = f"kg_{hash(kg_text)}"
+            scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank)
+        
+        # Sort by score
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        return ranked
+    
     def get_relevant_context(self, query: str, top_k: int = 3) -> str:
-        retriever = self.index.as_retriever(similarity_top_k=top_k)
-        nodes = retriever.retrieve(query)
-        vector_context = "\n\n".join([node.text for node in nodes])
+        """Get relevant context using hybrid retrieval (vector + graph)"""
+        # Vector search
+        retriever = self.index.as_retriever(similarity_top_k=top_k * 2)
+        vector_nodes = retriever.retrieve(query)
         
-        # Add knowledge graph context
-        kg_context = self.kg_builder.query_kg(query)
+        if not self.hybrid_retrieval:
+            # Simple concatenation (old behavior)
+            vector_context = "\n\n".join([node.text for node in vector_nodes[:top_k]])
+            kg_context = self.kg_builder.query_kg(query)
+            return f"Vector Context:\n{vector_context}\n\nKnowledge Graph:\n{kg_context}"
         
-        return f"Vector Context:\n{vector_context}\n\nKnowledge Graph:\n{kg_context}"
+        # Hybrid retrieval with reciprocal rank fusion
+        kg_response = self.kg_builder.query_kg(query)
+        
+        # Extract KG text chunks (split by sentences)
+        kg_chunks = [s.strip() for s in kg_response.split('.') if len(s.strip()) > 20]
+        
+        # Merge using reciprocal rank fusion
+        fused_results = self._reciprocal_rank_fusion(vector_nodes, kg_chunks)
+        
+        # Build context from top results
+        context_parts = []
+        seen_ids = set()
+        
+        for doc_id, score in fused_results[:top_k]:
+            if doc_id.startswith('kg_'):
+                # KG result
+                kg_idx = abs(hash(doc_id)) % len(kg_chunks)
+                if kg_idx not in seen_ids:
+                    context_parts.append(f"[KG] {kg_chunks[kg_idx]}")
+                    seen_ids.add(kg_idx)
+            else:
+                # Vector result
+                for node in vector_nodes:
+                    if node.node_id == doc_id and doc_id not in seen_ids:
+                        context_parts.append(f"[Vector] {node.text[:500]}")
+                        seen_ids.add(doc_id)
+                        break
+        
+        return "\n\n".join(context_parts)
     
     def _extract_epub_text(self, file_path: str) -> str:
         """Extract text from EPUB file"""

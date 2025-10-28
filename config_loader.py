@@ -32,6 +32,10 @@ class Config:
         # Load request timeout
         self.request_timeout = float(root.find('model_settings/request_timeout').text)
         
+        # Load hybrid retrieval setting
+        hybrid_elem = root.find('model_settings/hybrid_retrieval')
+        self.hybrid_retrieval = hybrid_elem.text.lower() == 'true' if hybrid_elem is not None else True
+        
         # Load debug log file
         self.debug_log_file = root.find('logging/debug_log_file').text
         

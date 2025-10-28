@@ -14,6 +14,8 @@
         <embedding_model>sentence-transformers/LaBSE</embedding_model>
         <documents_path>stalin/</documents_path>
         <request_timeout>600</request_timeout>
+        <!-- Hybrid retrieval: merge vector + knowledge graph results (true = RRF fusion, false = separate) -->
+        <hybrid_retrieval>true</hybrid_retrieval>
     </model_settings>
     <web_search>
         <enabled>true</enabled>
