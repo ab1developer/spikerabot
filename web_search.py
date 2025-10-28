@@ -37,9 +37,18 @@ class WebSearcher:
             return False
         return any(trigger in text.lower() for trigger in self.config.web_search_triggers)
     
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URL by adding scheme if missing"""
+        if url.startswith('//'):
+            return 'https:' + url
+        elif not url.startswith(('http://', 'https://')):
+            return 'https://' + url
+        return url
+    
     def extract_page_content(self, url: str, max_chars: int = 1000) -> str:
         """Extract text content from webpage"""
         try:
+            url = self._normalize_url(url)
             response = requests.get(url, headers=self.headers, timeout=5)
             soup = BeautifulSoup(response.content, 'html.parser')
             
