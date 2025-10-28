@@ -8,6 +8,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import re
+import numpy as np
 
 class WebSearcher:
     def __init__(self):
@@ -15,6 +16,20 @@ class WebSearcher:
         self.smart_search_enabled = self.config.smart_search_enabled
         self.headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         self.search_sources = self.config.search_sources
+        self.semantic_ranking = self.config.semantic_ranking
+        self.embedding_model = None
+        if self.semantic_ranking:
+            self._load_embedding_model()
+    
+    def _load_embedding_model(self):
+        """Load embedding model for semantic ranking"""
+        try:
+            from sentence_transformers import SentenceTransformer
+            self.embedding_model = SentenceTransformer(self.config.embedding_model)
+            debug_logger.log_info(f"Loaded embedding model for semantic ranking: {self.config.embedding_model}")
+        except Exception as e:
+            debug_logger.log_error(f"Failed to load embedding model: {e}", e)
+            self.semantic_ranking = False
     
     def should_search_web(self, text: str) -> bool:
         """Check if message requests web search"""
@@ -56,40 +71,88 @@ class WebSearcher:
         
         return results
     
+    def cosine_similarity(self, vec1, vec2):
+        """Calculate cosine similarity between two vectors"""
+        return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+    
+    def calculate_semantic_score(self, title: str, snippet: str, query: str) -> float:
+        """Calculate semantic similarity score using embeddings"""
+        if not self.semantic_ranking or self.embedding_model is None:
+            return 0.0
+        
+        try:
+            # Combine title and snippet for better context
+            result_text = f"{title} {snippet}" if snippet else title
+            
+            # Get embeddings
+            query_embedding = self.embedding_model.encode(query, convert_to_numpy=True)
+            result_embedding = self.embedding_model.encode(result_text, convert_to_numpy=True)
+            
+            # Calculate cosine similarity (returns value between -1 and 1)
+            similarity = self.cosine_similarity(query_embedding, result_embedding)
+            
+            # Convert to 0-100 scale
+            return (similarity + 1) * 50
+        except Exception as e:
+            debug_logger.log_error(f"Semantic scoring error: {e}", e)
+            return 0.0
+    
     def calculate_relevance_score(self, title: str, snippet: str, url: str, query: str) -> float:
         """Calculate relevance score for search result"""
-        score = 0.0
-        query_lower = query.lower()
-        query_words = set(query_lower.split())
-        
-        # Title relevance (40% weight)
-        title_lower = title.lower()
-        title_words = set(title_lower.split())
-        title_matches = len(query_words & title_words)
-        if title_matches > 0:
-            score += (title_matches / len(query_words)) * 40
-        
-        # Snippet relevance (30% weight)
-        if snippet:
-            snippet_lower = snippet.lower()
-            snippet_words = set(snippet_lower.split())
-            snippet_matches = len(query_words & snippet_words)
-            if snippet_matches > 0:
-                score += (snippet_matches / len(query_words)) * 30
-        
-        # Domain authority (20% weight)
-        trusted_domains = ['wikipedia.org', 'gov', 'edu', 'reuters.com', 'bbc.com']
-        for domain in trusted_domains:
-            if domain in url:
-                score += 20
-                break
-        
-        # Recency bonus (10% weight)
-        current_year = datetime.now().year
-        if str(current_year) in title or (snippet and str(current_year) in snippet):
-            score += 10
-        
-        return score
+        if self.semantic_ranking and self.embedding_model is not None:
+            # Semantic ranking mode (70% semantic + 30% other factors)
+            semantic_score = self.calculate_semantic_score(title, snippet, query)
+            
+            # Domain authority (20% weight)
+            domain_score = 0.0
+            trusted_domains = ['wikipedia.org', 'gov', 'edu', 'reuters.com', 'bbc.com']
+            for domain in trusted_domains:
+                if domain in url:
+                    domain_score = 20.0
+                    break
+            
+            # Recency bonus (10% weight)
+            recency_score = 0.0
+            current_year = datetime.now().year
+            if str(current_year) in title or (snippet and str(current_year) in snippet):
+                recency_score = 10.0
+            
+            # Combine: 70% semantic + 20% domain + 10% recency
+            return (semantic_score * 0.7) + domain_score + recency_score
+        else:
+            # Keyword-based ranking (fallback)
+            score = 0.0
+            query_lower = query.lower()
+            query_words = set(query_lower.split())
+            
+            # Title relevance (40% weight)
+            title_lower = title.lower()
+            title_words = set(title_lower.split())
+            title_matches = len(query_words & title_words)
+            if title_matches > 0:
+                score += (title_matches / len(query_words)) * 40
+            
+            # Snippet relevance (30% weight)
+            if snippet:
+                snippet_lower = snippet.lower()
+                snippet_words = set(snippet_lower.split())
+                snippet_matches = len(query_words & snippet_words)
+                if snippet_matches > 0:
+                    score += (snippet_matches / len(query_words)) * 30
+            
+            # Domain authority (20% weight)
+            trusted_domains = ['wikipedia.org', 'gov', 'edu', 'reuters.com', 'bbc.com']
+            for domain in trusted_domains:
+                if domain in url:
+                    score += 20
+                    break
+            
+            # Recency bonus (10% weight)
+            current_year = datetime.now().year
+            if str(current_year) in title or (snippet and str(current_year) in snippet):
+                score += 10
+            
+            return score
     
     def rank_results(self, results: list, query: str) -> list:
         """Rank search results by relevance score"""

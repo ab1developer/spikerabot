@@ -22,6 +22,8 @@
         <smart_search_links>5</smart_search_links>
         <!-- Parallel workers for content extraction. Values: 1 (sequential, slowest), 2-3 (balanced), 4-5 (fast), 6-10 (aggressive, high CPU) -->
         <parallel_extraction_workers>3</parallel_extraction_workers>
+        <!-- Use semantic similarity for ranking (true = embeddings, false = keyword matching) -->
+        <semantic_ranking>true</semantic_ranking>
         <!-- Search sources: priority determines order, lower = tried first. Fallback to next if no results -->
         <sources>
             <source enabled="true" priority="1">duckduckgo</source>
