@@ -54,6 +54,7 @@ class Config:
         self.web_search_max_results = int(web_search.find('max_results').text)
         self.smart_search_enabled = web_search.find('smart_search_enabled').text.lower() == 'true' if web_search.find('smart_search_enabled') is not None else False
         self.smart_search_links = int(web_search.find('smart_search_links').text) if web_search.find('smart_search_links') is not None else 5
+        self.parallel_extraction_workers = int(web_search.find('parallel_extraction_workers').text) if web_search.find('parallel_extraction_workers') is not None else 3
         
         # Load search sources
         self.search_sources = []

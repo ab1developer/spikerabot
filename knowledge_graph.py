@@ -8,14 +8,6 @@ import os
 import json
 import spacy
 
-# Disable NLTK downloads to prevent errors
-try:
-    import nltk
-    nltk.data.path = []
-    debug_logger.log_info("NLTK data path cleared to prevent downloads")
-except ImportError:
-    debug_logger.log_info("NLTK not found, skipping configuration")
-    pass
 
 class KnowledgeGraphBuilder:
     def __init__(self):

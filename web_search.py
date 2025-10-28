@@ -5,6 +5,7 @@ from config_loader import load_config
 from debug_logger import debug_logger
 from functools import lru_cache
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import re
 
@@ -36,6 +37,24 @@ class WebSearcher:
         except Exception as e:
             debug_logger.log_error(f"Content extraction error for {url}: {e}", e)
             return ""
+    
+    def extract_multiple_contents(self, urls: list, max_chars: int = 1000) -> dict:
+        """Extract content from multiple URLs in parallel"""
+        results = {}
+        
+        with ThreadPoolExecutor(max_workers=self.config.parallel_extraction_workers) as executor:
+            future_to_url = {executor.submit(self.extract_page_content, url, max_chars): url for url in urls}
+            
+            for future in as_completed(future_to_url):
+                url = future_to_url[future]
+                try:
+                    content = future.result()
+                    results[url] = content
+                except Exception as e:
+                    debug_logger.log_error(f"Parallel extraction error for {url}: {e}", e)
+                    results[url] = ""
+        
+        return results
     
     def calculate_relevance_score(self, title: str, snippet: str, url: str, query: str) -> float:
         """Calculate relevance score for search result"""
@@ -319,7 +338,7 @@ Does NOT need search for:
             return False, None
     
     def smart_search_and_compact(self, query: str) -> str:
-        """Perform smart search with ranking, content extraction and compact results"""
+        """Perform smart search with ranking, parallel content extraction and compact results"""
         try:
             raw_results = self._multi_source_search(query)
             
@@ -334,11 +353,17 @@ Does NOT need search for:
                 if r['snippet']:
                     results.append(f"  {r['snippet'][:200]}")
             
-            # Extract content from top ranked result
+            # Extract content from top 3 ranked results in parallel
             if ranked:
-                content = self.extract_page_content(ranked[0]['url'], max_chars=800)
-                if content:
-                    results.append(f"\nСодержание наиболее релевантной страницы: {content}")
+                top_urls = [r['url'] for r in ranked[:3]]
+                contents = self.extract_multiple_contents(top_urls, max_chars=800)
+                
+                # Use content from most relevant result that has content
+                for url in top_urls:
+                    content = contents.get(url, '')
+                    if content:
+                        results.append(f"\nСодержание наиболее релевантной страницы: {content}")
+                        break
             
             import model
             search_text = "\n".join(results)

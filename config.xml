@@ -20,6 +20,8 @@
         <max_results>3</max_results>
         <smart_search_enabled>true</smart_search_enabled>
         <smart_search_links>5</smart_search_links>
+        <!-- Parallel workers for content extraction. Values: 1 (sequential, slowest), 2-3 (balanced), 4-5 (fast), 6-10 (aggressive, high CPU) -->
+        <parallel_extraction_workers>3</parallel_extraction_workers>
         <!-- Search sources: priority determines order, lower = tried first. Fallback to next if no results -->
         <sources>
             <source enabled="true" priority="1">duckduckgo</source>
