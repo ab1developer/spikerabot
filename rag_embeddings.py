@@ -8,11 +8,15 @@ import requests
 import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
+import warnings
+warnings.filterwarnings("ignore", message=".*UNEXPECTED.*")
 
 class RAGEmbeddings:
     def __init__(self):
         config = load_config()
-        Settings.embed_model = HuggingFaceEmbedding(model_name=config.embedding_model)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            Settings.embed_model = HuggingFaceEmbedding(model_name=config.embedding_model)
         self.index = None
         self.kg_builder = KnowledgeGraphBuilder()
         self.hybrid_retrieval = config.hybrid_retrieval

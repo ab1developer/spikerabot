@@ -1,3 +1,7 @@
+import warnings
+warnings.filterwarnings("ignore", message=".*UNEXPECTED.*")
+warnings.filterwarnings("ignore", message=".*position_ids.*")
+
 import telebot
 import model
 from context_manager import ContextManager

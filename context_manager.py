@@ -2,6 +2,7 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 import json
+import os
 
 class ContextManager:
     def __init__(self, max_messages=100, context_timeout_hours=24):
@@ -9,16 +10,59 @@ class ContextManager:
         self.last_activity: Dict[int, datetime] = {}
         self.max_messages = max_messages
         self.context_timeout = timedelta(hours=context_timeout_hours)
+        self.context_dir = "conversations"
+        os.makedirs(self.context_dir, exist_ok=True)
+        self._load_conversations()
+    
+    def _get_context_file(self, chat_id: int) -> str:
+        """Get file path for chat context"""
+        return os.path.join(self.context_dir, f"chat_{chat_id}.txt")
+    
+    def _load_conversations(self):
+        """Load existing conversations from files"""
+        if not os.path.exists(self.context_dir):
+            return
+        
+        for filename in os.listdir(self.context_dir):
+            if filename.startswith("chat_") and filename.endswith(".txt"):
+                try:
+                    chat_id = int(filename.replace("chat_", "").replace(".txt", ""))
+                    filepath = os.path.join(self.context_dir, filename)
+                    
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                try:
+                                    msg = json.loads(line)
+                                    self.conversations[chat_id].append(msg)
+                                    if 'timestamp' in msg:
+                                        self.last_activity[chat_id] = datetime.fromisoformat(msg['timestamp'])
+                                except json.JSONDecodeError:
+                                    continue
+                except (ValueError, FileNotFoundError):
+                    continue
+    
+    def _save_message_to_file(self, chat_id: int, message: dict):
+        """Save single message to file"""
+        filepath = self._get_context_file(chat_id)
+        try:
+            with open(filepath, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(message, ensure_ascii=False) + '\n')
+        except Exception as e:
+            print(f"Error saving message to file: {e}")
     
     def add_message(self, chat_id: int, role: str, content: str):
         """Add a message to conversation history"""
         now = datetime.now()
-        self.conversations[chat_id].append({
+        message = {
             'role': role,
             'content': content,
             'timestamp': now.isoformat()
-        })
+        }
+        self.conversations[chat_id].append(message)
         self.last_activity[chat_id] = now
+        self._save_message_to_file(chat_id, message)
         self._cleanup_old_conversations()
     
     def get_compacted_context(self, chat_id: int) -> str:
