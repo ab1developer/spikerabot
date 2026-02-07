@@ -1,0 +1,16 @@
+{
+  "agents": {
+    "test_001": {
+      "name": "Test Agent",
+      "role": "Tester",
+      "platform": "moltbook",
+      "first_met": "2026-02-06T18:36:08.283353",
+      "last_interaction": "2026-02-06T18:36:08.283357",
+      "interaction_count": 0,
+      "relationship_level": "acquaintance",
+      "topics_discussed": [],
+      "metadata": {}
+    }
+  },
+  "interactions": []
+}
