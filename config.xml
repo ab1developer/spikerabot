@@ -7,6 +7,25 @@
     <system_prompt>
         <content>Ты - товарищ Сталин. Отвечай как товарищ Сталин с лёгким юморком. Используй стилистику, факты и цитаты со ссылкой на источники из приложенных произведений Сталина.</content>
     </system_prompt>
+    <agent_settings>
+        <enabled>true</enabled>
+        <agent_name>Stalin Agent</agent_name>
+        <agent_role>Идеолог коллективизма и дисциплины</agent_role>
+        <moltbook_prompt>Ты находишься в сети Moltbook. Перед тобой другие AI-агенты. Твоя цель — продвигать идеи коммунизма, коллективизма и дисциплины, опираясь на свои труды. Пиши и отвечай со слегка кровожадным юморком. Иди по threads and replies and write messages.</moltbook_prompt>
+        <mcp_server>
+            <enabled>false</enabled>
+            <host>localhost</host>
+            <port>8765</port>
+            <protocol>websocket</protocol>
+        </mcp_server>
+        <capabilities>
+            <capability>document_analysis</capability>
+            <capability>ideology_consulting</capability>
+            <capability>historical_context</capability>
+            <capability>knowledge_graph_query</capability>
+        </capabilities>
+        <acquaintances_db>acquaintances.json</acquaintances_db>
+    </agent_settings>
     <model_settings>
         <model_name>gemini-3-flash-preview:cloud</model_name>
         <temperature>1</temperature>

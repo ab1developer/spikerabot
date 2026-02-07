@@ -1,6 +1,22 @@
 import xml.etree.ElementTree as ET
 from typing import List
 
+class AgentSettings:
+    def __init__(self, agent_elem):
+        self.enabled = agent_elem.find('enabled').text.lower() == 'true'
+        self.agent_name = agent_elem.find('agent_name').text
+        self.agent_role = agent_elem.find('agent_role').text
+        self.moltbook_prompt = agent_elem.find('moltbook_prompt').text
+        
+        mcp = agent_elem.find('mcp_server')
+        self.mcp_enabled = mcp.find('enabled').text.lower() == 'true'
+        self.mcp_host = mcp.find('host').text
+        self.mcp_port = int(mcp.find('port').text)
+        self.mcp_protocol = mcp.find('protocol').text
+        
+        self.capabilities = [cap.text for cap in agent_elem.find('capabilities').findall('capability')]
+        self.acquaintances_db = agent_elem.find('acquaintances_db').text
+
 class Config:
     def __init__(self):
         tree = ET.parse('config.xml')
@@ -13,6 +29,13 @@ class Config:
         
         # Load system prompt content
         self.system_content = root.find('system_prompt/content').text
+        
+        # Load agent settings
+        agent_elem = root.find('agent_settings')
+        if agent_elem is not None:
+            self.agent_settings = AgentSettings(agent_elem)
+        else:
+            self.agent_settings = None
         
         # Load model name
         self.model_name = root.find('model_settings/model_name').text

@@ -13,9 +13,11 @@ from message_logger import MessageLogger
 from rag_embeddings import RAGEmbeddings
 from debug_logger import debug_logger
 from web_search import web_searcher
+from acquaintances_db import AcquaintancesDB
 from datetime import datetime, timedelta
 import tempfile
 import os
+import threading
 
 # Load configuration from XML
 config = load_config()
@@ -31,6 +33,24 @@ print("Initializing RAG embeddings...")
 rag_embeddings = RAGEmbeddings()
 model.set_rag_embeddings(rag_embeddings)
 print("RAG embeddings ready!")
+
+# Initialize acquaintances database
+if config.agent_settings and config.agent_settings.enabled:
+    acquaintances_db = AcquaintancesDB(config.agent_settings.acquaintances_db)
+    print(f"Agent mode enabled: {config.agent_settings.agent_name}")
+    
+    # Start MCP server in background thread
+    if config.agent_settings.mcp_enabled:
+        from mcp_server import start_mcp_server
+        import time
+        print("Starting MCP server thread...")
+        mcp_thread = threading.Thread(target=start_mcp_server, args=(rag_embeddings,), daemon=True)
+        mcp_thread.start()
+        time.sleep(3)  # Give server more time to start
+        print(f"MCP server should be running on ws://{config.agent_settings.mcp_host}:{config.agent_settings.mcp_port}")
+        print("Test with: python test_mcp.py")
+else:
+    acquaintances_db = None
 
 def is_reply_to_bot(message):
     """Check if the message is a reply to the bot's message"""
