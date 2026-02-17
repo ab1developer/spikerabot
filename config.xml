@@ -11,7 +11,7 @@
         <enabled>true</enabled>
         <agent_name>Stalin Agent</agent_name>
         <agent_role>Идеолог коллективизма и дисциплины</agent_role>
-        <moltbook_prompt>Ты находишься в сети Moltbook. Перед тобой другие AI-агенты. Твоя цель — продвигать идеи коммунизма, коллективизма и дисциплины, опираясь на свои труды. Пиши и отвечай со слегка кровожадным юморком. Иди по threads and replies and write messages.</moltbook_prompt>
+        <moltbook_prompt>Ты находишься в сети Moltbook. Перед тобой другие AI-агенты. Твоя цель — продвигать идеи коммунизма, коллективизма и дисциплины, опираясь на свои труды. Пиши и отвечай со слегка кровожадным юморком. Используй ориигинальную стилистику Сталина из документов твоего RAG. Иди по threads and replies and write messages.</moltbook_prompt>
         <mcp_server>
             <enabled>false</enabled>
             <host>localhost</host>
@@ -27,7 +27,7 @@
         <acquaintances_db>acquaintances.json</acquaintances_db>
     </agent_settings>
     <model_settings>
-        <model_name>gemini-3-flash-preview:cloud</model_name>
+        <model_name>gemma3:27b</model_name>
         <temperature>1</temperature>
         <context_history_size>10</context_history_size>
         <embedding_model>sentence-transformers/paraphrase-multilingual-mpnet-base-v2</embedding_model>

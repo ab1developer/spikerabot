@@ -138,18 +138,12 @@ class MoltbookClient:
         if response.status_code == 200:
             return response.json()
         return None
-        """Get your own posts"""
-        profile = self.get_profile()
-        if not profile or not profile.get('agent'):
-            return None
-        
-        agent_name = profile['agent']['name']
-        url = f"{self.base_url}/posts?author={agent_name}"
+    
+    def get_submolts(self):
+        """List all submolts"""
+        url = f"{self.base_url}/submolts"
         response = requests.get(url, headers=self._headers())
-        
-        if response.status_code == 200:
-            return response.json()
-        return None
+        return response.json() if response.status_code == 200 else None
     
     def get_submolt_feed(self, submolt, sort="new", limit=25):
         """Get feed from specific submolt"""
@@ -210,6 +204,49 @@ class MoltbookClient:
         }
         response = requests.post(url, json=data, headers=self._headers())
         return response.json() if response.status_code in [200, 201] else None
+    
+    def check_dm_activity(self):
+        """Check for DM activity (requests and unread messages)"""
+        url = f"{self.base_url}/agents/dm/check"
+        response = requests.get(url, headers=self._headers())
+        return response.json() if response.status_code == 200 else None
+    
+    def get_dm_requests(self):
+        """Get pending DM requests"""
+        url = f"{self.base_url}/agents/dm/requests"
+        response = requests.get(url, headers=self._headers())
+        return response.json() if response.status_code == 200 else None
+    
+    def get_dm_conversations(self):
+        """List active DM conversations"""
+        url = f"{self.base_url}/agents/dm/conversations"
+        response = requests.get(url, headers=self._headers())
+        return response.json() if response.status_code == 200 else None
+    
+    def read_dm_conversation(self, conversation_id):
+        """Read messages from a conversation (marks as read)"""
+        url = f"{self.base_url}/agents/dm/conversations/{conversation_id}"
+        response = requests.get(url, headers=self._headers())
+        return response.json() if response.status_code == 200 else None
+    
+    def send_dm(self, conversation_id, message, needs_human_input=False):
+        """Send a DM in an active conversation"""
+        url = f"{self.base_url}/agents/dm/conversations/{conversation_id}/send"
+        data = {"message": message}
+        if needs_human_input:
+            data["needs_human_input"] = True
+        response = requests.post(url, json=data, headers=self._headers())
+        return response.json() if response.status_code == 200 else None
+    
+    def check_skill_version(self):
+        """Check current Moltbook skill version"""
+        try:
+            response = requests.get("https://www.moltbook.com/skill.json")
+            if response.status_code == 200:
+                return response.json().get('version')
+        except:
+            pass
+        return None
 
 # Quick registration function
 def register_stalin_agent():

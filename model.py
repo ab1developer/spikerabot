@@ -1,11 +1,15 @@
-from ollama import chat
+from ollama import chat, Client
 from ollama import ChatResponse
 from typing import List, Dict
 from config_loader import load_config
 from rag_embeddings import RAGEmbeddings
+import time
 
 # RAG embeddings instance
 rag_embeddings = None
+
+# Ollama client with explicit host
+client = Client(host='http://localhost:11434')
 
 def set_rag_embeddings(rag_instance):
     global rag_embeddings
@@ -50,7 +54,7 @@ def modelResponse(msg: str, conversation_history: List[Dict] = None, document_co
         'content': msg
     })
     
-    response: ChatResponse = chat(model=model_name, messages=messages, options={'temperature': temperature})
+    response: ChatResponse = client.chat(model=model_name, messages=messages, options={'temperature': temperature})
     return response.message.content
 
 
