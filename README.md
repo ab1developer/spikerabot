@@ -229,6 +229,163 @@ spikerabot/
 8. **Image Generation**: AI-powered image creation
 9. **Smart Summarization**: Chat history analysis
 
+## Configuration Reference
+
+All runtime behavior is controlled through `config.xml`. No code changes needed for most customization.
+
+### Bot trigger words (group chats only)
+
+In group chats the bot only responds when a message contains one of the trigger words, or when someone replies directly to the bot. Configure them here:
+
+```xml
+<trigger_words>
+    <word>бот,</word>
+    <word>Сталин,</word>
+</trigger_words>
+```
+
+Add or remove `<word>` entries freely. In private chats trigger words are ignored — the bot always responds.
+
+### System prompt / persona
+
+```xml
+<system_prompt>
+    <content>Ты - товарищ Сталин. Отвечай как товарищ Сталин...</content>
+</system_prompt>
+```
+
+This is the instruction injected at the top of every LLM request. Change it to give the bot a different persona, language, or set of rules.
+
+### Model settings
+
+```xml
+<model_settings>
+    <model_name>gemma4:31b</model_name>       <!-- any model installed in Ollama -->
+    <temperature>1</temperature>              <!-- 0 = deterministic, 2 = very creative -->
+    <context_history_size>10</context_history_size>  <!-- messages kept in RAM per chat -->
+    <embedding_model>sentence-transformers/paraphrase-multilingual-mpnet-base-v2</embedding_model>
+    <documents_path>stalin/</documents_path>  <!-- folder scanned for RAG documents -->
+    <request_timeout>600</request_timeout>    <!-- seconds before Ollama call times out -->
+    <hybrid_retrieval>true</hybrid_retrieval> <!-- true = RRF fusion, false = separate sections -->
+</model_settings>
+```
+
+To switch models just change `<model_name>` to any model you have pulled locally (`ollama list`).
+
+### Web search triggers
+
+Web search is activated when a message contains **any** of these exact phrases (case-insensitive):
+
+```xml
+<web_search>
+    <triggers>
+        <trigger>поиск в интернете</trigger>
+        <trigger>найди в сети</trigger>
+        <trigger>что в интернете</trigger>
+    </triggers>
+</web_search>
+```
+
+**Example**: "Сталин, поиск в интернете последние новости о ядерной энергетике"
+
+Add any phrase as a new `<trigger>` line. Triggers work in both private and group chats (in groups they bypass the bot trigger word check).
+
+#### Smart auto-search
+
+When `smart_search_enabled` is `true` the bot also silently decides on its own whether a question needs a web lookup — without the user typing a trigger phrase. The LLM classifies the query first; if it decides a search is needed it runs one and includes the results as extra context.
+
+```xml
+<smart_search_enabled>true</smart_search_enabled>
+<smart_search_links>5</smart_search_links>           <!-- pages scraped per query -->
+<parallel_extraction_workers>3</parallel_extraction_workers>  <!-- concurrent scrapers -->
+<semantic_ranking>true</semantic_ranking>            <!-- rank by meaning, not just keywords -->
+```
+
+#### Search sources
+
+Sources are tried in priority order; if one returns no results the next is tried automatically:
+
+```xml
+<sources>
+    <source enabled="true" priority="1">duckduckgo</source>
+    <source enabled="true" priority="2">brave</source>
+    <source enabled="true" priority="3">google</source>
+</sources>
+```
+
+Disable a source with `enabled="false"` or change priority order by editing the numbers.
+
+### Image generation triggers
+
+Hardcoded in `image_generator.py` (not in config.xml). The bot generates an image when the message contains any of:
+
+```
+картинка  изображение  фото  рисунок  нарисуй  покажи
+```
+
+**Example**: "нарисуй красный трактор"
+
+Images are fetched from Pollinations.ai; if that fails a simple PIL text image is generated as fallback.
+
+### Summary triggers
+
+Two kinds of summary are available:
+
+**Memory summary** — summarizes what the bot remembers from the current conversation (RAM):
+
+```xml
+<summary_triggers>
+    <memory>
+        <trigger>бот, резюме</trigger>
+        <trigger>бот, саммари</trigger>
+        <trigger>бот, итог</trigger>
+        <trigger>бот, кратко</trigger>
+        <trigger>бот, что обсуждали</trigger>
+        <trigger>бот, о чем говорили</trigger>
+    </memory>
+```
+
+**File summary** — reads persisted log files and summarizes a longer history:
+
+```xml
+    <file>
+        <trigger>бот, резюме файлов</trigger>
+        <trigger>бот, логи</trigger>
+        <trigger>бот, история чата</trigger>
+    </file>
+</summary_triggers>
+```
+
+Both support time filtering. Examples:
+- "бот, резюме с 14:30" — summary from 14:30 today
+- "бот, логи за последние 2 часа" — last 2 hours from log files
+
+### Credentials
+
+Stored in `security.xml` (gitignored). Minimum required:
+
+```xml
+<security>
+    <bot_token>YOUR_TELEGRAM_BOT_TOKEN</bot_token>
+</security>
+```
+
+### Logging
+
+```xml
+<logging>
+    <directory>logs</directory>
+    <max_file_size_mb>10</max_file_size_mb>
+    <debug_log_file>debug.log</debug_log_file>
+</logging>
+```
+
+- `logs/chat_<id>.json` — full message history per chat
+- `logs/debug.log` — errors and stack traces
+- `conversations/chat_<id>.txt` — lightweight persistent context loaded on bot restart
+
+---
+
 ## Installation
 
 ```bash
@@ -240,6 +397,6 @@ ollama pull <your-model>
 ## Running
 
 ```bash
-ollama serve  # Start Ollama server
+ollama serve   # Start Ollama server first
 python main.py
-``` 
+```

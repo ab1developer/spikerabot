@@ -22,8 +22,15 @@ def run_telegram_bot(core):
         if len(text) <= max_length:
             try:
                 return bot.reply_to(reply_to_message, text) if reply_to_message else bot.send_message(chat_id, text)
+            except telebot.apihelper.ApiTelegramException as e:
+                if e.error_code == 403:
+                    return None  # User blocked bot, silently ignore
+                try:
+                    return bot.send_message(chat_id, text)
+                except:
+                    return None
             except:
-                return bot.send_message(chat_id, text)
+                return None
         else:
             for i in range(0, len(text), max_length):
                 chunk = text[i:i + max_length]
@@ -32,8 +39,15 @@ def run_telegram_bot(core):
                         bot.reply_to(reply_to_message, chunk)
                     else:
                         bot.send_message(chat_id, chunk)
+                except telebot.apihelper.ApiTelegramException as e:
+                    if e.error_code == 403:
+                        return None
+                    try:
+                        bot.send_message(chat_id, chunk)
+                    except:
+                        pass
                 except:
-                    bot.send_message(chat_id, chunk)
+                    pass
     
     @bot.message_handler(commands=['search'])
     def handle_search_command(message):
@@ -158,7 +172,10 @@ def run_telegram_bot(core):
                 core.context_manager.add_message(chat_id, 'assistant', response)
             except Exception as e:
                 print(f"Response error: {e}")
-                safe_send_message(chat_id, "Произошла ошибка", message)
+                try:
+                    safe_send_message(chat_id, "Произошла ошибка", message)
+                except:
+                    pass  # Silently ignore if error message also fails
     
     print("📱 Starting Telegram bot polling...")
     bot.infinity_polling(timeout=60, long_polling_timeout=60)
