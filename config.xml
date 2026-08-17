@@ -8,7 +8,7 @@
         <content>Ты - товарищ Сталин. Отвечай как товарищ Сталин с лёгким юморком. Используй стилистику, факты и цитаты со ссылкой на источники из приложенных произведений Сталина.</content>
     </system_prompt>
     <model_settings>
-        <model_name>gemma4:31b</model_name>
+        <model_name>gemma4:26b</model_name>
         <temperature>1</temperature>
         <context_history_size>10</context_history_size>
         <embedding_model>sentence-transformers/paraphrase-multilingual-mpnet-base-v2</embedding_model>
@@ -17,6 +17,16 @@
         <!-- Hybrid retrieval: merge vector + knowledge graph results (true = RRF fusion, false = separate) -->
         <hybrid_retrieval>true</hybrid_retrieval>
     </model_settings>
+    <intent_router>
+        <!-- Master switch. false = fall back to legacy keyword matching only -->
+        <enabled>true</enabled>
+        <!-- Minimum semantic confidence to trust a non-exact classification (0.0–1.0) -->
+        <confidence_threshold>0.70</confidence_threshold>
+        <!-- How many recent conversation turns to send to the classifier (for pronoun resolution) -->
+        <context_turns>2</context_turns>
+        <!-- Seconds before the classifier Ollama call is abandoned and we fall back -->
+        <classifier_timeout>60</classifier_timeout>
+    </intent_router>
     <web_search>
         <enabled>true</enabled>
         <max_results>3</max_results>

@@ -24,6 +24,7 @@ ru-core-news-sm @ https://github.com/explosion/spacy-models/releases/download/ru
 requests==2.31.0
 beautifulsoup4==4.12.2
 lxml==4.9.3
+ddgs==9.15.0
 
 # Image generation
 Pillow==10.1.0

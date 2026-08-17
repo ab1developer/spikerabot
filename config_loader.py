@@ -79,6 +79,19 @@ class Config:
         for trigger in web_search.find('triggers').findall('trigger'):
             self.web_search_triggers.append(trigger.text)
 
+        # Load intent router settings
+        ir = root.find('intent_router')
+        if ir is not None:
+            self.intent_router_enabled = ir.find('enabled').text.lower() == 'true'
+            self.intent_router_confidence_threshold = float(ir.find('confidence_threshold').text)
+            self.intent_router_context_turns = int(ir.find('context_turns').text)
+            self.intent_router_classifier_timeout = int(ir.find('classifier_timeout').text)
+        else:
+            self.intent_router_enabled = False
+            self.intent_router_confidence_threshold = 0.70
+            self.intent_router_context_turns = 2
+            self.intent_router_classifier_timeout = 15
+
 def load_config():
     """Load configuration from XML file"""
     return Config()

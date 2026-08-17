@@ -1,9 +1,8 @@
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 from config_loader import load_config
 from debug_logger import debug_logger
-from functools import lru_cache
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
@@ -18,11 +17,17 @@ class WebSearcher:
         self.search_sources = self.config.search_sources
         self.semantic_ranking = self.config.semantic_ranking
         self.embedding_model = None
-        if self.semantic_ranking:
-            self._load_embedding_model()
+        self._embedding_load_attempted = False
+        # TTL cache: {query: (timestamp, (results_text, links))}
+        # Only successful results are cached; errors are never stored.
+        self._search_cache: dict = {}
+        self._cache_ttl: int = 300  # 5 minutes
     
     def _load_embedding_model(self):
         """Load embedding model for semantic ranking"""
+        if self._embedding_load_attempted:
+            return
+        self._embedding_load_attempted = True
         try:
             from sentence_transformers import SentenceTransformer
             self.embedding_model = SentenceTransformer(self.config.embedding_model)
@@ -32,24 +37,41 @@ class WebSearcher:
             self.semantic_ranking = False
     
     def should_search_web(self, text: str) -> bool:
-        """Check if message requests web search"""
+        """Legacy fast-path check kept for backwards compatibility.
+
+        New code should use IntentRouter.classify() instead.
+        Returns True if any configured trigger phrase is present.
+        """
         if not self.config.web_search_enabled:
             return False
         return any(trigger in text.lower() for trigger in self.config.web_search_triggers)
     
     def _normalize_url(self, url: str) -> str:
-        """Normalize URL by adding scheme if missing"""
+        """Return a usable absolute HTTP(S) URL, or an empty string."""
+        if not isinstance(url, str):
+            return ""
+        url = url.strip()
+        if not url:
+            return ""
         if url.startswith('//'):
-            return 'https:' + url
+            url = 'https:' + url
         elif not url.startswith(('http://', 'https://')):
-            return 'https://' + url
-        return url
+            # Search-page navigation links such as /goggles are not results.
+            if url.startswith(('/', '?', '#')):
+                return ""
+            url = 'https://' + url
+
+        parsed = urlparse(url)
+        return url if parsed.scheme in ('http', 'https') and parsed.netloc else ""
     
     def extract_page_content(self, url: str, max_chars: int = 1000) -> str:
         """Extract text content from webpage"""
         try:
             url = self._normalize_url(url)
+            if not url:
+                return ""
             response = requests.get(url, headers=self.headers, timeout=5)
+            response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
             
             # Remove scripts, styles, nav, footer
@@ -86,6 +108,8 @@ class WebSearcher:
     
     def calculate_semantic_score(self, title: str, snippet: str, query: str) -> float:
         """Calculate semantic similarity score using embeddings"""
+        if self.semantic_ranking and self.embedding_model is None:
+            self._load_embedding_model()
         if not self.semantic_ranking or self.embedding_model is None:
             return 0.0
         
@@ -108,6 +132,8 @@ class WebSearcher:
     
     def calculate_relevance_score(self, title: str, snippet: str, url: str, query: str) -> float:
         """Calculate relevance score for search result"""
+        if self.semantic_ranking and self.embedding_model is None:
+            self._load_embedding_model()
         if self.semantic_ranking and self.embedding_model is not None:
             # Semantic ranking mode (70% semantic + 30% other factors)
             semantic_score = self.calculate_semantic_score(title, snippet, query)
@@ -133,6 +159,8 @@ class WebSearcher:
             score = 0.0
             query_lower = query.lower()
             query_words = set(query_lower.split())
+            if not query_words:
+                return 0.0
             
             # Title relevance (40% weight)
             title_lower = title.lower()
@@ -183,22 +211,22 @@ class WebSearcher:
             return ""
     
     def _search_duckduckgo(self, query: str) -> list:
-        """Search using DuckDuckGo"""
+        """Search using the ddgs library (API-based, not HTML scraping)."""
         try:
-            search_url = f"https://duckduckgo.com/html/?q={quote_plus(query)}"
-            response = requests.get(search_url, headers=self.headers, timeout=10)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
+            from ddgs import DDGS
             results = []
-            result_elements = soup.find_all('a', class_='result__a')[:self.config.web_search_max_results * 2]
-            
-            for elem in result_elements:
-                title = elem.get_text().strip()
-                url = elem.get('href', '')
-                snippet = self.extract_snippet(elem)
-                if title and url:
-                    results.append({'title': title, 'url': url, 'snippet': snippet, 'source': 'DuckDuckGo'})
-            
+            with DDGS() as ddgs:
+                for r in ddgs.text(query, max_results=self.config.web_search_max_results * 2):
+                    title = str(r.get('title') or '').strip()
+                    url = self._normalize_url(str(r.get('href') or ''))
+                    if not title or not url:
+                        continue
+                    results.append({
+                        'title': title,
+                        'url': url,
+                        'snippet': r.get('body', ''),
+                        'source': 'DuckDuckGo',
+                    })
             return results
         except Exception as e:
             debug_logger.log_error(f"DuckDuckGo search error: {e}", e)
@@ -209,6 +237,7 @@ class WebSearcher:
         try:
             search_url = f"https://search.brave.com/search?q={quote_plus(query)}"
             response = requests.get(search_url, headers=self.headers, timeout=10)
+            response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
             
             results = []
@@ -222,7 +251,7 @@ class WebSearcher:
                 
                 if title_elem:
                     title = title_elem.get_text().strip()
-                    url = title_elem.get('href', '')
+                    url = self._normalize_url(title_elem.get('href', ''))
                     snippet_elem = div.find('p', class_='snippet-description')
                     snippet = snippet_elem.get_text().strip() if snippet_elem else ''
                     
@@ -239,6 +268,7 @@ class WebSearcher:
         try:
             search_url = f"https://www.google.com/search?q={quote_plus(query)}"
             response = requests.get(search_url, headers=self.headers, timeout=10)
+            response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
             
             results = []
@@ -252,10 +282,10 @@ class WebSearcher:
                 
                 if title_elem and link_elem:
                     title = title_elem.get_text().strip()
-                    url = link_elem.get('href', '')
+                    url = self._normalize_url(link_elem.get('href', ''))
                     snippet = snippet_elem.get_text().strip() if snippet_elem else ''
                     
-                    if title and url and url.startswith('http'):
+                    if title and url:
                         results.append({'title': title, 'url': url, 'snippet': snippet, 'source': 'Google'})
             
             return results
@@ -291,16 +321,25 @@ class WebSearcher:
             else:
                 debug_logger.log_info(f"{source_name} returned no results, trying next source")
         
-        return all_results
+        # Keep provider priority while removing duplicate and invalid URLs.
+        unique_results = []
+        seen_urls = set()
+        for result in all_results:
+            url = self._normalize_url(result.get('url', ''))
+            if not url or url in seen_urls:
+                continue
+            result['url'] = url
+            seen_urls.add(url)
+            unique_results.append(result)
+        return unique_results
     
-    @lru_cache(maxsize=50)
-    def cached_search(self, query: str, timestamp: int) -> tuple:
-        """Cached search with 5-minute intervals"""
-        return self._perform_search(query)
-    
+
     def _perform_search(self, query: str) -> tuple:
         """Perform multi-source web search and return results with links"""
         try:
+            query = ' '.join((query or '').split())
+            if not query:
+                return "🔍 Пустой поисковый запрос", []
             raw_results = self._multi_source_search(query)
             
             if not raw_results:
@@ -326,89 +365,68 @@ class WebSearcher:
             return "🔍 Ошибка поиска в интернете", []
     
     def search(self, query: str) -> tuple:
-        """Perform web search with caching"""
-        # Round timestamp to 5-minute intervals for caching
-        timestamp = int(time.time() // 300)
-        return self.cached_search(query, timestamp)
+        """Perform web search with TTL caching (5 minutes, successful results only).
+
+        Replaces the old @lru_cache approach which:
+        - included `self` in the cache key (leaking the instance)
+        - cached error/empty strings, silencing search for the full TTL window
+
+        Only results containing at least one URL are cached; empty/error
+        results are discarded so the next call retries immediately.
+        """
+        now = time.time()
+        query = ' '.join((query or '').split())
+        cache_key = query.casefold()
+        cached = self._search_cache.get(cache_key)
+        if cached is not None:
+            cached_at, payload = cached
+            if now - cached_at < self._cache_ttl:
+                debug_logger.log_info(f"WebSearcher: cache hit for query={query!r}")
+                return payload
+
+        result = self._perform_search(query)
+
+        results_text, links = result
+        if links:  # only cache real results
+            self._search_cache[cache_key] = (now, result)
+
+        return result
     
-    def search_and_analyze(self, query: str, conversation_history) -> tuple:
-        """Perform web search and generate LLM response with search context"""
+    def search_and_analyze(self, query: str, conversation_history) -> str:
+        """Perform web search and return a formatted LLM-synthesised response string.
+
+        This is the primary entry point called by main.py / the intent router.
+        It returns a plain string ready to send to the user.
+        """
         try:
             search_results, links = self.search(query)
-            
-            # Import here to avoid circular imports
+
+            # Do not ask the persona model to explain an empty lookup: doing so
+            # produced long hallucinated replies followed by the same failure
+            # line twice. Return one clear diagnostic and let a later call retry.
+            if not links:
+                return search_results
+
             import model
-            
-            # Create enhanced prompt with search results
+
             enhanced_query = f"{query}\n\nКонтекст из интернета:\n{search_results}"
-            
-            # Generate response using LLM with search context
             response = model.modelResponse(enhanced_query, conversation_history)
-            
-            # Format final response with links
+
             final_response = f"{response}\n\n{search_results}"
             if links:
                 final_response += "\n\n🔗 Ссылки:\n" + "\n".join(links)
-            
-            return final_response, links
-            
+
+            return final_response
+
         except Exception as e:
             debug_logger.log_error(f"Web search and analysis error: {e}", e)
-            search_results, links = self.search(query)  # Fallback to simple search
-            return search_results, links
-    
-    def should_auto_search(self, message: str) -> tuple:
-        """Determine if message needs web search and generate search query"""
-        if not self.smart_search_enabled or not self.config.web_search_enabled:
-            return False, None
-        
-        try:
-            import model
-            
-            # Ask LLM to classify and generate search query
-            classifier_prompt = f"""Analyze this message and determine if it needs current information from the internet.
+            # Fallback: return raw search results without LLM synthesis
+            search_results, links = self.search(query)
+            result = search_results
+            if links:
+                result += "\n\n🔗 Ссылки:\n" + "\n".join(links)
+            return result
 
-Message: "{message}"
-
-Respond ONLY with JSON format:
-{{"needs_search": true/false, "search_query": "optimized search query" or null}}
-
-Needs search if message asks about:
-- Current events, news, recent happenings
-- Facts that may have changed
-- Real-time information (weather, prices, etc.)
-- Specific recent dates or times
-- "What's happening", "latest", "current", "now", "today"
-
-Does NOT need search for:
-- Greetings, thanks, casual chat
-- Historical facts (before 2023)
-- Personal opinions
-- General knowledge questions
-- Philosophical discussions"""
-            
-            response = model.modelResponse(classifier_prompt, [])
-            
-            # Parse JSON response
-            import json
-            import re
-            
-            # Extract JSON from response
-            json_match = re.search(r'\{[^}]+\}', response)
-            if json_match:
-                result = json.loads(json_match.group())
-                needs_search = result.get('needs_search', False)
-                search_query = result.get('search_query')
-                
-                debug_logger.log_info(f"Auto-search decision: needs_search={needs_search}, query={search_query}")
-                return needs_search, search_query
-            
-            return False, None
-            
-        except Exception as e:
-            debug_logger.log_error(f"Auto-search classification error: {e}", e)
-            return False, None
-    
     def smart_search_and_compact(self, query: str) -> str:
         """Perform smart search with ranking, parallel content extraction and compact results"""
         try:

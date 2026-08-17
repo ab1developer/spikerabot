@@ -16,24 +16,34 @@ Advanced Telegram bot with RAG (Retrieval-Augmented Generation), Knowledge Graph
         │              │              │
         ▼              ▼              ▼
 ┌──────────────┐ ┌──────────┐ ┌─────────────┐
-│   Message    │ │ Context  │ │   Message   │
-│   Router     │ │ Manager  │ │   Logger    │
-└──────┬───────┘ └────┬─────┘ └─────────────┘
-       │              │
-       │              ▼
+│   Telegram   │ │ Context  │ │   Message   │
+│  Eligibility │ │ Manager  │ │   Logger    │
+│  (triggers,  │ └────┬─────┘ └─────────────┘
+│   replies)   │      │
+└──────┬───────┘      ▼
        │      ┌──────────────┐
        │      │Conversations/│
        │      │  (Persistent)│
        │      └──────────────┘
        │
-       ├─────────────┬─────────────┬──────────────┐
-       ▼             ▼             ▼              ▼
-┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
-│   RAG    │  │   Web    │  │  Image   │  │ Summary  │
-│ System   │  │  Search  │  │Generator │  │Generator │
-└────┬─────┘  └────┬─────┘  └──────────┘  └──────────┘
-     │             │
-     ▼             ▼
+       ▼
+┌─────────────────────────────────┐
+│         Intent Router           │
+│                                 │
+│  1. Exact trigger fast-path     │
+│  2. Semantic LLM classifier     │
+│     (temperature=0, JSON out)   │
+│  3. Fallback → NORMAL_CHAT      │
+└──────────────┬──────────────────┘
+               │
+   ┌───────────┼───────────┬────────────┬────────────┐
+   ▼           ▼           ▼            ▼            ▼
+┌──────┐ ┌─────────┐ ┌────────┐ ┌──────────┐ ┌──────────┐
+│ RAG  │ │  Web    │ │ Image  │ │ Summary  │ │ Summary  │
+│ Chat │ │ Search  │ │  Gen   │ │ (Memory) │ │  (File)  │
+└──┬───┘ └────┬────┘ └────────┘ └──────────┘ └──────────┘
+   │          │
+   ▼          ▼
 ┌─────────────────────────┐
 │    Ollama LLM Server    │
 │   (Local Inference)     │
@@ -135,7 +145,243 @@ User Query → RAG Context → Conversation History → System Prompt → Ollama
 - Error tracking in `logs/debug.log`
 - Exception logging with stack traces
 
-### 8. **Configuration**
+### 8. **Intent Router** (semantic routing layer)
+
+**`intent_router.py`** is the single decision point for every incoming message. Before it existed, routing logic was scattered across four separate modules (`web_search.py`, `image_generator.py`, `summary_generator.py`, `main.py`), each doing its own keyword check independently. The router consolidates all of that into one place and adds genuine semantic understanding on top.
+
+---
+
+#### Core data structures
+
+```python
+class IntentType(Enum):
+    NORMAL_CHAT           = "normal_chat"
+    WEB_SEARCH_EXPLICIT   = "web_search_explicit"
+    WEB_SEARCH_FRESHNESS  = "web_search_freshness"
+    IMAGE_GENERATION      = "image_generation"
+    SUMMARY_MEMORY        = "summary_memory"
+    SUMMARY_FILE          = "summary_file"
+
+@dataclass
+class IntentResult:
+    intent:     IntentType
+    confidence: float         # 0.0–1.0
+    query:      str | None    # cleaned search query (search intents only)
+    explicit:   bool          # True = user explicitly asked for this action
+    reason:     str | None    # one-sentence explanation (logged, not shown to user)
+    source:     str           # "exact_trigger" | "semantic_classifier" | "fallback"
+```
+
+`IntentResult.source` lets you trace exactly why a given routing decision was made — useful when debugging unexpected behaviour in `logs/debug.log`.
+
+---
+
+#### Three-stage pipeline
+
+Every call to `router.classify(text, history)` goes through the same three stages in order:
+
+```
+Stage 1 — Fast-path exact triggers
+          ↓ (no match)
+Stage 2 — Semantic LLM classifier
+          ↓ (error / low confidence / router disabled)
+Stage 3 — Fallback: NORMAL_CHAT
+```
+
+**Stage 1 — Fast-path (no LLM call)**
+
+Checks configured and hardcoded triggers against the lowercased message text. Returns immediately at `confidence=1.0` if anything matches. Four trigger groups are checked in this order:
+
+| Group | Source | Example trigger |
+|---|---|---|
+| Web search | `config.xml <triggers>` | `поиск в интернете` |
+| Image generation | hardcoded in `intent_router.py` | `нарисуй`, `картинк*` |
+| Memory summary | `config.xml <summary_triggers><memory>` | `бот, резюме` |
+| File summary | `config.xml <summary_triggers><file>` | `бот, логи` |
+
+Image keywords use prefix matching to handle Russian noun inflection:
+```
+"картинка" → also matches "картинку", "картинки", "картинке"
+```
+This is done by checking `word.startswith(kw[:max(4, len(kw)-2)])` across all words in the message.
+
+For web-search triggers the trigger phrase is stripped from the text to produce a cleaner `query`:
+```
+"Товарищ Сталин, поиск в интернете курс рубля"
+→ query = "Товарищ Сталин,  курс рубля"   (trigger removed)
+```
+
+**Stage 2 — Semantic classifier**
+
+When no fast-path trigger matches, a single bare LLM call is made via `model.raw_llm_call()`. This function is completely separate from `model.modelResponse()` — it sends no RAG context, no persona system prompt, and uses `temperature=0` for deterministic output. It runs in a daemon thread and respects the configured timeout.
+
+The classifier receives a compact prompt containing:
+1. A description of all six intent types with Russian examples
+2. The last `context_turns × 2` messages from conversation history (capped at 200 chars each) — this allows resolving pronouns like "посмотри тогда" when the subject was established earlier
+3. The current message
+
+It is instructed to return only this JSON:
+```json
+{
+  "intent": "web_search_explicit",
+  "confidence": 0.97,
+  "query": "latest stable PostgreSQL version",
+  "explicit": true,
+  "reason": "User explicitly asks to look this up online"
+}
+```
+
+The parser then:
+- Strips markdown code fences (` ```json ... ``` `)
+- Extracts the first `{...}` block with a regex
+- Tries `json.loads()`, retries after stripping trailing commas if that fails
+- Validates that `intent` is a known `IntentType` value
+- Checks `confidence >= threshold` (default 0.70) — below threshold falls through to Stage 3
+- Suppresses `WEB_SEARCH_FRESHNESS` if `smart_search_enabled=false` in config
+- Falls back to original message text as `query` if the model returned `null`
+
+Any exception — JSON parse failure, unknown intent value, Ollama timeout, connection error — is caught and leads to Stage 3.
+
+**Stage 3 — Fallback**
+
+Returns `IntentResult(intent=NORMAL_CHAT, source="fallback")`. The bot answers from RAG + conversation history as normal. The user sees no error; the reason is written to `logs/debug.log`.
+
+---
+
+#### Query rewriting
+
+One practical benefit of the semantic path is that the LLM rewrites the user's message into a clean search query before it hits DuckDuckGo/Brave/Google. Addressing words, persona names, and conversational filler are stripped:
+
+```
+User:   "Товарищ Сталин, не могли бы вы разыскать в этих ваших
+          интернетах сведения о запуске реактора ИТЭР?"
+Query:  "ИТЭР реактор запуск"
+
+User:   "можно узнать, что сейчас пишут о ценах на газ?"
+Query:  "цены на газ текущие"
+```
+
+On the fast-path (exact trigger match) this rewriting only removes the trigger phrase itself. The semantic path produces a genuinely compressed query.
+
+---
+
+#### Two distinct web-search intents
+
+The router distinguishes two reasons to run a web search, which behave differently:
+
+**`WEB_SEARCH_EXPLICIT`** — the user said so in some form. Fires regardless of any config flag. Examples that all map here:
+```
+найди в интернете последние новости о PostgreSQL
+посмотри в сети информацию об этом
+погугли историю этого проекта
+проверь в интернете, правда ли это
+Товарищ Сталин, а не могли бы вы мне найти в Интернете вот это
+разыщите-ка мне в этих ваших интернетах информацию о реакторах
+не соблаговолите ли вы разыскать это во всемирной паутине?
+глянь, что пишут об этом в сети
+```
+None of these contain the configured trigger phrases. They are classified purely by semantic meaning.
+
+**`WEB_SEARCH_FRESHNESS`** — the user did not ask to search, but the answer requires current data. Only fires when `smart_search_enabled=true`. Examples:
+```
+кто сейчас премьер-министр Канады?    → needs current data
+какая сейчас цена биткоина?           → real-time price
+последняя стабильная версия PostgreSQL? → version changes
+что произошло сегодня в Берлине?      → today's news
+```
+When `smart_search_enabled=false`, these fall back to `NORMAL_CHAT` and are answered from RAG/LLM knowledge only.
+
+---
+
+#### Conversation context for pronoun resolution
+
+The router passes the last `context_turns` exchanges to the classifier. This handles cases like:
+
+```
+User: Расскажи о PostgreSQL 19.
+Bot:  [answers from RAG]
+User: Посмотри тогда в интернете.   ← "тогда" / "это" refers to the previous topic
+```
+
+Without history, "Посмотри тогда в интернете" is ambiguous. With 2 turns of context the classifier sees the prior subject and can produce `query = "PostgreSQL 19"`.
+
+Only `context_turns × 2` messages are sent (default: last 4 messages), each truncated to 200 characters. Full conversation history is never sent to the classifier.
+
+---
+
+#### Routing decisions in the debug log
+
+Every call to `classify()` appends one line to `logs/debug.log`:
+
+```
+INFO - IntentRouter: intent=web_search_explicit confidence=0.97 source=semantic_classifier explicit=True query='PostgreSQL 19 release date' reason='User explicitly asks to look this up online'
+INFO - IntentRouter: intent=normal_chat confidence=1.00 source=exact_trigger explicit=False query=None reason=None
+INFO - IntentRouter: intent=normal_chat confidence=0.00 source=fallback reason='classifier error: timed out after 15s'
+```
+
+Fields logged: `intent`, `confidence`, `source`, `explicit`, `query`, `reason`.
+
+---
+
+#### Integration with main.py
+
+`main.py` calls `intent_router.classify()` once per eligible message and dispatches to a dedicated handler function:
+
+```python
+result = intent_router.classify(full_text, conversation_history)
+
+if result.intent == IntentType.WEB_SEARCH_EXPLICIT:
+    _handle_web_search(chat_id, message, full_text, result, history)
+elif result.intent == IntentType.WEB_SEARCH_FRESHNESS:
+    if web_searcher.smart_search_enabled:
+        _handle_web_search(...)
+    else:
+        _handle_normal_chat(...)
+elif result.intent == IntentType.IMAGE_GENERATION:
+    _handle_image(...)
+elif result.intent == IntentType.SUMMARY_FILE:
+    _handle_summary_file(...)
+elif result.intent == IntentType.SUMMARY_MEMORY:
+    _handle_summary_memory(...)
+else:  # NORMAL_CHAT
+    _handle_normal_chat(...)
+```
+
+The search handlers use `result.query` (the rewritten query) rather than the raw message text.
+
+---
+
+#### Group chat bypass rule
+
+In group chats the bot normally only responds when a message contains a configured bot trigger word (e.g. "Сталин,") or is a direct reply to the bot. Operational intent triggers — web search, image, summary — bypass this rule, exactly as they did before the router was introduced. This is implemented in `_is_eligible()` in `main.py` by running `_fast_path()` independently before the full classification.
+
+---
+
+#### Failure guarantees
+
+`classify()` is designed to never raise an exception to its caller:
+
+| Failure | Behaviour |
+|---|---|
+| Ollama timeout | Thread abandoned after `classifier_timeout` seconds → NORMAL_CHAT |
+| Ollama connection refused | Exception caught → NORMAL_CHAT |
+| Empty LLM response | No JSON found → NORMAL_CHAT |
+| Malformed JSON | Trailing-comma retry, then → NORMAL_CHAT |
+| Unknown intent string | ValueError caught → NORMAL_CHAT |
+| Missing `confidence` field | Defaults to 0.0 → below threshold → NORMAL_CHAT |
+| Missing `query` field | Falls back to original message text |
+| `smart_search_enabled=false` | `WEB_SEARCH_FRESHNESS` suppressed → NORMAL_CHAT |
+| `intent_router enabled=false` | Semantic path skipped, fast-path still runs |
+
+---
+
+#### Limitations
+
+- **Multi-intent messages** — "нарисуй картинку того, что сейчас происходит в Берлине" contains both image generation and freshness search. The fast-path fires first and returns `IMAGE_GENERATION`. There is no multi-intent planner.
+- **Fast-path query rewriting is shallow** — on an exact trigger match only the trigger phrase itself is removed. The semantic path produces a properly compressed query.
+- **No embedding-based classifier** — intent classification uses the same LLM as chat, not a dedicated embedding classifier. A small dedicated model (e.g. a fine-tuned BERT) would be faster and more reliable, but adds a dependency.
+
+### 9. **Configuration**
 
 **config.xml** - Bot settings
 - Trigger words
@@ -196,7 +442,8 @@ User Query → RAG Context → Conversation History → System Prompt → Ollama
 
 ```
 spikerabot/
-├── main.py                    # Entry point
+├── main.py                    # Entry point + Telegram handlers
+├── intent_router.py           # Semantic Intent Router (NEW)
 ├── model.py                   # Ollama LLM interface
 ├── rag_embeddings.py          # RAG system
 ├── knowledge_graph.py         # Knowledge graph builder
@@ -211,6 +458,7 @@ spikerabot/
 ├── config.xml                 # Bot configuration
 ├── security.xml               # Credentials (gitignored)
 ├── requirements.txt           # Python dependencies
+├── test_intent_router.py      # Intent router unit tests (54 tests)
 ├── stalin/                    # Document collection
 ├── storage/                   # Vector store & graphs
 ├── conversations/             # Persistent chat history
@@ -271,6 +519,32 @@ This is the instruction injected at the top of every LLM request. Change it to g
 ```
 
 To switch models just change `<model_name>` to any model you have pulled locally (`ollama list`).
+
+### Intent Router
+
+Controls the semantic routing layer (`intent_router.py`). The router runs after Telegram eligibility is checked but before any subsystem is invoked.
+
+```xml
+<intent_router>
+    <!-- false = use only fast-path keyword matching, no LLM classifier -->
+    <enabled>true</enabled>
+    <!-- Minimum confidence to accept a semantic classification (0.0–1.0) -->
+    <!-- Below this threshold the router falls back to NORMAL_CHAT -->
+    <confidence_threshold>0.70</confidence_threshold>
+    <!-- Recent conversation turns passed to the classifier for pronoun resolution -->
+    <!-- Example: "посмотри тогда" requires knowing what "тогда" refers to -->
+    <context_turns>2</context_turns>
+    <!-- Seconds before the classifier Ollama call is abandoned -->
+    <classifier_timeout>15</classifier_timeout>
+</intent_router>
+```
+
+**Key behaviour:**
+- Exact configured triggers always fire first at confidence=1.0 regardless of the `enabled` flag.
+- Setting `enabled=false` skips the LLM classifier but keeps all keyword triggers working.
+- `WEB_SEARCH_FRESHNESS` (e.g. "какая цена биткоина?") is suppressed when `smart_search_enabled=false`.
+- Any classifier error or timeout silently falls back to `NORMAL_CHAT` — the bot never crashes.
+- All routing decisions are written to `logs/debug.log` with intent, confidence, source, and query.
 
 ### Web search triggers
 
