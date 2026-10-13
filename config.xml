@@ -8,15 +8,25 @@
         <content>Ты - товарищ Сталин. Отвечай как товарищ Сталин с лёгким юморком. Используй стилистику, факты и цитаты со ссылкой на источники из приложенных произведений Сталина.</content>
     </system_prompt>
     <model_settings>
-        <model_name>gemma4:26b</model_name>
+        <model_name>gemma4:e4b</model_name>
         <temperature>1</temperature>
         <context_history_size>10</context_history_size>
         <embedding_model>sentence-transformers/paraphrase-multilingual-mpnet-base-v2</embedding_model>
+        <!-- Keep embeddings in system RAM so they do not compete with Ollama for VRAM. -->
+        <embedding_device>cpu</embedding_device>
         <documents_path>stalin/</documents_path>
         <request_timeout>600</request_timeout>
+        <!-- Bound the KV cache instead of using the model's 131072-token maximum. -->
+        <ollama_context_window>4096</ollama_context_window>
         <!-- Hybrid retrieval: merge vector + knowledge graph results (true = RRF fusion, false = separate) -->
         <hybrid_retrieval>true</hybrid_retrieval>
     </model_settings>
+    <knowledge_graph>
+        <!-- Extract relationships from book passages in a resumable background worker. -->
+        <ingest_books_on_startup>true</ingest_books_on_startup>
+        <checkpoint_chunks>25</checkpoint_chunks>
+        <max_triplets_per_chunk>5</max_triplets_per_chunk>
+    </knowledge_graph>
     <intent_router>
         <!-- Master switch. false = fall back to legacy keyword matching only -->
         <enabled>true</enabled>

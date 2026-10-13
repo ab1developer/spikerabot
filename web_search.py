@@ -30,7 +30,10 @@ class WebSearcher:
         self._embedding_load_attempted = True
         try:
             from sentence_transformers import SentenceTransformer
-            self.embedding_model = SentenceTransformer(self.config.embedding_model)
+            self.embedding_model = SentenceTransformer(
+                self.config.embedding_model,
+                device=self.config.embedding_device,
+            )
             debug_logger.log_info(f"Loaded embedding model for semantic ranking: {self.config.embedding_model}")
         except Exception as e:
             debug_logger.log_error(f"Failed to load embedding model: {e}", e)

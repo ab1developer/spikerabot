@@ -25,16 +25,32 @@ class Config:
         
         # Load embedding model
         self.embedding_model = root.find('model_settings/embedding_model').text
+        self.embedding_device = (
+            root.findtext('model_settings/embedding_device') or 'cpu'
+        ).strip() or 'cpu'
         
         # Load documents path
         self.documents_path = root.find('model_settings/documents_path').text
         
         # Load request timeout
         self.request_timeout = float(root.find('model_settings/request_timeout').text)
+        self.ollama_context_window = int(
+            root.findtext('model_settings/ollama_context_window') or '4096'
+        )
         
         # Load hybrid retrieval setting
         hybrid_elem = root.find('model_settings/hybrid_retrieval')
         self.hybrid_retrieval = hybrid_elem.text.lower() == 'true' if hybrid_elem is not None else True
+
+        self.kg_ingest_books = (
+            root.findtext('knowledge_graph/ingest_books_on_startup') or 'true'
+        ).strip().lower() == 'true'
+        self.kg_checkpoint_chunks = max(1, int(
+            root.findtext('knowledge_graph/checkpoint_chunks') or '25'
+        ))
+        self.kg_max_triplets_per_chunk = max(1, int(
+            root.findtext('knowledge_graph/max_triplets_per_chunk') or '5'
+        ))
         
         # Load debug log file
         self.debug_log_file = root.find('logging/debug_log_file').text

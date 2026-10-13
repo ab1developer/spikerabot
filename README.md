@@ -662,11 +662,43 @@ Stored in `security.xml` (gitignored). Minimum required:
 
 ## Installation
 
+Use Python 3.12-3.14. Create and select a project virtual environment before
+installing dependencies (select `.venv/bin/python` in your IDE).
+
 ```bash
-pip install -r requirements.txt
-python -m spacy download ru_core_news_sm
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ollama pull <your-model>
 ```
+
+The requirements include the compatible Russian spaCy model and LlamaIndex file
+readers, so no separate model download is needed.
+
+RAG and web-search embeddings use CPU by default. The
+`model_settings/embedding_device` setting in `config.xml` controls both; keep it
+at `cpu` to leave GPU memory available for Ollama.
+
+`model_settings/ollama_context_window` limits every Ollama request to 4096
+tokens by default, including knowledge graph queries and intent classification.
+This avoids allocating Gemma's full model context in GPU memory.
+
+After loading or building the vector index, the bot extracts knowledge graph
+relationships from the indexed book passages in a background worker. Replies
+can start while this first backfill is running; extraction uses the local
+Ollama model and relationship embeddings use the configured embedding device.
+Full-book extraction can take hours on a small GPU.
+Foreground messages take priority before the next passage; a message arriving
+during extraction may wait for the current passage to finish.
+
+Progress appears as `Knowledge graph ingestion: N/M passages saved`. The graph,
+source passage links, and relationship embeddings are persisted together.
+`storage/knowledge_graph_ingestion.json` records completed passages so restarting
+resumes the backfill and skips unchanged work. A failed passage is retried after
+restart. Configure this under `<knowledge_graph>` in `config.xml`: startup
+ingestion is enabled by default, checkpoints are saved every 25 passages (and
+after the first passage), and each passage contributes at most 5 relationships.
 
 ## Running
 

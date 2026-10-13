@@ -3,19 +3,21 @@ from ollama import ChatResponse
 from typing import List, Dict, Optional
 from config_loader import load_config
 from rag_embeddings import RAGEmbeddings
+from inference_scheduler import foreground_inference
 import time
 
 # RAG embeddings instance
 rag_embeddings = None
 
 # Ollama client with explicit host
-client = Client(host='http://localhost:11434')
+client = Client(host='http://localhost:11434', timeout=load_config().request_timeout)
 
 def set_rag_embeddings(rag_instance):
     global rag_embeddings
     rag_embeddings = rag_instance
 
 
+@foreground_inference
 def modelResponse(
     msg: str,
     conversation_history: List[Dict] = None,
@@ -60,11 +62,16 @@ def modelResponse(
     response: ChatResponse = client.chat(
         model=model_name,
         messages=messages,
-        options={'temperature': effective_temperature},
+        options={
+            'temperature': effective_temperature,
+            'num_ctx': config.ollama_context_window,
+        },
+        think=False,
     )
     return response.message.content
 
 
+@foreground_inference
 def raw_llm_call(
     prompt: str,
     temperature: float = 0.0,
@@ -78,37 +85,23 @@ def raw_llm_call(
     Args:
         prompt: The full prompt to send as the user turn.
         temperature: Defaults to 0 for determinism.
-        timeout: Seconds before giving up (best-effort; Ollama client does
-                 not natively enforce per-request timeouts, so we wrap in a
-                 thread to respect it).
+        timeout: HTTP timeout in seconds for the classifier call.
 
     Returns:
         The model's response text, or empty string on failure.
     """
-    import threading
-
     config = load_config()
-    model_name = config.model_name
-    result: list = []
-    exc: list = []
-
-    def _call():
-        try:
-            resp: ChatResponse = client.chat(
-                model=model_name,
-                messages=[{'role': 'user', 'content': prompt}],
-                options={'temperature': temperature},
-            )
-            result.append(resp.message.content)
-        except Exception as e:  # noqa: BLE001
-            exc.append(e)
-
-    thread = threading.Thread(target=_call, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout)
-
-    if exc:
-        raise exc[0]
-    if not result:
-        raise TimeoutError(f"raw_llm_call timed out after {timeout}s")
-    return result[0]
+    # Set the transport timeout so a timed-out classifier does not leave a
+    # background client thread competing with the normal chat request.
+    classifier_client = Client(host='http://localhost:11434', timeout=timeout)
+    response: ChatResponse = classifier_client.chat(
+        model=config.model_name,
+        messages=[{'role': 'user', 'content': prompt}],
+        options={
+            'temperature': temperature,
+            'num_ctx': config.ollama_context_window,
+            'num_predict': 256,
+        },
+        think=False,
+    )
+    return response.message.content

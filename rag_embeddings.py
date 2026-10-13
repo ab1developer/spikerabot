@@ -16,24 +16,50 @@ class RAGEmbeddings:
         config = load_config()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            Settings.embed_model = HuggingFaceEmbedding(model_name=config.embedding_model)
+            Settings.embed_model = HuggingFaceEmbedding(
+                model_name=config.embedding_model,
+                device=config.embedding_device,
+            )
         self.index = None
         self.kg_builder = KnowledgeGraphBuilder()
         self.hybrid_retrieval = config.hybrid_retrieval
         self._load_or_build_index()
+        self.kg_builder.start_book_ingestion(self.index)
     
     def _load_or_build_index(self):
-        if os.path.exists("./storage"):
-            print("Loading saved index...")
+        # Share storage with the graph so later graph writes retain the vector
+        # index, and never mistake a graph-only store for a vector index.
+        kg_index = self.kg_builder.kg_index
+        if kg_index is not None:
+            storage_context = kg_index.storage_context
+        elif os.path.exists("./storage/index_store.json"):
             storage_context = StorageContext.from_defaults(persist_dir="./storage")
-            self.index = load_index_from_storage(storage_context)
+        else:
+            storage_context = StorageContext.from_defaults()
+
+        vector_structs = [
+            struct for struct in storage_context.index_store.index_structs()
+            if isinstance(struct, VectorStoreIndex.index_struct_cls)
+        ]
+        if vector_structs:
+            print("Loading saved vector index...")
+            vector_struct = next(
+                (struct for struct in vector_structs if struct.index_id == "vector_index"),
+                vector_structs[0],
+            )
+            self.index = load_index_from_storage(
+                storage_context, index_id=vector_struct.index_id
+            )
             print("Index loaded!")
         else:
             config = load_config()
             documents = SimpleDirectoryReader(config.documents_path).load_data()
             print(f"Documents loaded: {len(documents)}")
             print("Building vector index...")
-            self.index = VectorStoreIndex.from_documents(documents, show_progress=True)
+            self.index = VectorStoreIndex.from_documents(
+                documents, storage_context=storage_context, show_progress=True
+            )
+            self.index.set_index_id("vector_index")
             self.index.storage_context.persist(persist_dir="./storage")
             print("Index built and saved!")
     
@@ -48,8 +74,8 @@ class RAGEmbeddings:
         
         # Score KG results (extract text from KG response)
         for rank, kg_text in enumerate(kg_results, 1):
-            # Use text hash as ID for KG results
-            doc_id = f"kg_{hash(kg_text)}"
+            # Keep the source position so fusion returns the matching passage.
+            doc_id = f"kg_{rank - 1}"
             scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank)
         
         # Sort by score
@@ -84,7 +110,7 @@ class RAGEmbeddings:
         for doc_id, score in fused_results[:top_k]:
             if doc_id.startswith('kg_'):
                 # KG result
-                kg_idx = abs(hash(doc_id)) % len(kg_chunks)
+                kg_idx = int(doc_id[3:])
                 if kg_idx not in seen_ids:
                     context_parts.append(f"[KG] {kg_chunks[kg_idx]}")
                     seen_ids.add(kg_idx)

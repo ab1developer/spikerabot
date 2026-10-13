@@ -1,3 +1,4 @@
+
 import warnings
 warnings.filterwarnings("ignore", message=".*UNEXPECTED.*")
 warnings.filterwarnings("ignore", message=".*position_ids.*")
@@ -14,6 +15,7 @@ from rag_embeddings import RAGEmbeddings
 from debug_logger import debug_logger
 from web_search import web_searcher
 from intent_router import intent_router, IntentType
+from inference_scheduler import foreground_inference
 from datetime import datetime, timedelta
 import tempfile
 import os
@@ -70,6 +72,7 @@ def safe_send_message(chat_id, text: str, reply_to_message=None):
 # Document handler (unchanged logic, kept separate)
 # ---------------------------------------------------------------------------
 
+@foreground_inference
 def process_document_message(message):
     """Handle messages with attached documents."""
     chat_id = message.chat.id
@@ -166,6 +169,7 @@ def _is_eligible(message, text_content: str) -> bool:
     return False
 
 
+@foreground_inference
 def process_message(message):
     """Core message dispatcher — routes to the correct subsystem via IntentRouter."""
     text_content = message.text if message.text else (message.caption or "")
